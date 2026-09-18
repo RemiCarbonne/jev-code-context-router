@@ -68,6 +68,31 @@ def command_claude_hook(args) -> int:
     return 0
 
 
+def command_codex_hook(args) -> int:
+    """Codex UserPromptSubmit command hook using the router CLI directly."""
+    payload = json.load(sys.stdin)
+    cwd = Path(payload.get("cwd") or ".").expanduser().resolve()
+    prompt = str(payload.get("prompt") or "")
+    result = ContextRouter(_settings(args, cwd)).route(prompt, cwd=cwd)
+    context = result.context
+    if result.status == "repository-unresolved":
+        context = '<code_context status="repository-unresolved">Ask the user which repository this coding request targets before exploring files.</code_context>'
+    elif result.status in {"timeout", "error"}:
+        context = (
+            f'<code_context status="{result.status}">'
+            f'Context routing did not complete: {result.message} Proceed with targeted repository inspection.'
+            "</code_context>"
+        )
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context,
+        }
+    } if context else {}
+    print(json.dumps(output, ensure_ascii=False))
+    return 0
+
+
 def command_mcp(args) -> int:
     try:
         from .mcp_server import run
@@ -87,7 +112,9 @@ def command_install(args) -> int:
     elif args.target == "claude":
         print(install_claude(Path(args.project or ".")))
     else:
-        print(install_codex(apply=args.apply))
+        import os
+        codex_home = Path(args.home or os.environ.get("CODEX_HOME", "~/.codex"))
+        print(install_codex(codex_home, apply=args.apply, mode=args.mode))
     return 0
 
 
@@ -111,14 +138,18 @@ def build_parser() -> argparse.ArgumentParser:
     hook = sub.add_parser("claude-hook", help="Claude Code UserPromptSubmit hook over stdin/stdout JSON.")
     hook.add_argument("--config")
     hook.set_defaults(func=command_claude_hook)
+    codex_hook = sub.add_parser("codex-hook", help="Codex CLI UserPromptSubmit hook over stdin/stdout JSON (no MCP).")
+    codex_hook.add_argument("--config")
+    codex_hook.set_defaults(func=command_codex_hook)
     mcp = sub.add_parser("mcp-serve", help="Run the optional stdio MCP server for Codex and other clients.")
     mcp.add_argument("--config")
     mcp.set_defaults(func=command_mcp)
     install = sub.add_parser("install", help="Install an adapter for Hermes, Claude Code, or Codex.")
     install.add_argument("target", choices=("hermes", "claude", "codex"))
-    install.add_argument("--home", help="Hermes home (default: HERMES_HOME or ~/.hermes).")
+    install.add_argument("--home", help="Hermes or Codex home directory, depending on the target.")
     install.add_argument("--project", help="Claude Code project directory.")
     install.add_argument("--apply", action="store_true", help="Also run the platform enable/register command when available.")
+    install.add_argument("--mode", choices=("cli", "mcp"), default="cli", help="Codex integration mode (default: direct CLI hook).")
     install.set_defaults(func=command_install)
     return parser
 

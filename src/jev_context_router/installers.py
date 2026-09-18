@@ -42,7 +42,7 @@ def register(ctx):
 _HERMES_MANIFEST = '''manifest_version: 2
 api_version: 1
 name: jev-context-router
-version: 0.1.2
+version: 0.1.3
 description: "Repository-aware Jev context routing for coding turns."
 author: DazzStudio
 kind: standalone
@@ -84,8 +84,35 @@ def install_claude(project: Path) -> Path:
     return settings_path
 
 
-def install_codex(apply: bool = False) -> str:
-    command = ["codex", "mcp", "add", "jev-context", "--", "jev-context", "mcp-serve"]
-    if apply:
-        subprocess.run(command, check=True)
-    return " ".join(command)
+def install_codex(home: Path | None = None, apply: bool = False, mode: str = "cli") -> str | Path:
+    if mode == "mcp":
+        command = ["codex", "mcp", "add", "jev-context", "--", "jev-context", "mcp-serve"]
+        if apply:
+            subprocess.run(command, check=True)
+        return " ".join(command)
+    if mode != "cli":
+        raise ValueError(f"Unsupported Codex integration mode: {mode}")
+
+    home = (home or Path(os.environ.get("CODEX_HOME", "~/.codex"))).expanduser().resolve()
+    hooks_path = home / "hooks.json"
+    if not apply:
+        return f"jev-context install codex --mode cli --home {home} --apply"
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = json.loads(hooks_path.read_text(encoding="utf-8")) if hooks_path.is_file() else {}
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Refusing to overwrite invalid JSON: {hooks_path}") from exc
+    groups = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
+    entry = {
+        "hooks": [{
+            "type": "command",
+            "command": "jev-context codex-hook",
+            "timeout": 30,
+            "statusMessage": "Selecting repository context",
+            "additionalContextLimit": 16000,
+        }]
+    }
+    if entry not in groups:
+        groups.append(entry)
+    hooks_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return hooks_path

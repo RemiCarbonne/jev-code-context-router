@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-18
+
+### Added
+
+- Add a direct Codex CLI `UserPromptSubmit` hook that injects routed context without MCP startup.
+- Add an idempotent `jev-context install codex --mode cli --apply` installer for Codex `hooks.json`.
+
 ## [0.1.2] - 2026-09-18
 
 ### Fixed

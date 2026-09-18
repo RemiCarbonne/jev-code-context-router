@@ -90,14 +90,23 @@ jev-context install claude --project .
 
 This adds an idempotent `UserPromptSubmit` command hook to `.claude/settings.local.json`. The hook emits `hookSpecificOutput.additionalContext` as required by Claude Code.
 
-## Codex / MCP
+## Codex CLI hook (recommended)
+
+```bash
+uv tool install jev-context-router
+jev-context install codex --mode cli --apply
+```
+
+This installs a Codex `UserPromptSubmit` command hook in `${CODEX_HOME:-~/.codex}/hooks.json`. Every coding prompt is routed through `jev-context codex-hook` before the first model request, without starting MCP or relying on the model to call a tool. Restart Codex, open `/hooks`, and trust the new hook definition when prompted.
+
+## Codex / MCP alternative
 
 ```bash
 uv tool install 'jev-context-router[mcp]'
-codex mcp add jev-context --env TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- jev-context mcp-serve
+jev-context install codex --mode mcp --apply
 ```
 
-Then instruct Codex in `AGENTS.md` to call `route_code_context` before broad repository search. See `adapters/codex/README.md`.
+MCP remains useful for clients without command hooks or when the model must call the router explicitly. See `adapters/codex/README.md`.
 
 The MCP tool returns the complete structured routing result and streams standard MCP progress notifications. It accepts optional `timeout_seconds` and `debug` arguments. With `debug: true`, the returned metrics also include the ordered progress events.
 

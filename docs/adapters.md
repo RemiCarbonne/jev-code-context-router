@@ -24,11 +24,20 @@ This merges a `UserPromptSubmit` command hook into `.claude/settings.local.json`
 
 This follows Claude Code's documented JSON hook contract. Existing unrelated hook settings are preserved.
 
+## Codex CLI direct hook
+
+```bash
+uv tool install jev-context-router
+jev-context install codex --mode cli --apply
+```
+
+The installer merges a `UserPromptSubmit` command hook into `${CODEX_HOME:-~/.codex}/hooks.json`. Codex sends `cwd` and `prompt` over stdin and receives selected source through `hookSpecificOutput.additionalContext`. This path avoids MCP startup and automatic tool-choice overhead. Restart Codex and trust the hook through `/hooks`.
+
 ## Codex CLI through MCP
 
 ```bash
 uv tool install 'jev-context-router[mcp]'
-codex mcp add jev-context -- jev-context mcp-serve
+jev-context install codex --mode mcp --apply
 ```
 
 Add the optional `adapters/codex/AGENTS.snippet.md` content to the repository's `AGENTS.md`. It asks Codex to call the routing tool before broad source exploration.

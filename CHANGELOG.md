@@ -4,6 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-18
+
+### Fixed
+
+- Prevent MCP debug telemetry from creating a circular reference during result serialization.
+- Exercise `debug=true`, progress reporting, and bounded execution in the MCP regression test.
+
 ## [0.1.1] - 2026-09-18
 
 ### Fixed

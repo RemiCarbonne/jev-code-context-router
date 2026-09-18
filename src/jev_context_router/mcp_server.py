@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import time
 import traceback
 from dataclasses import replace
@@ -64,7 +65,10 @@ def create_server(config_path: str | None = None):
 
         def progress(event: dict[str, Any]) -> None:
             if debug:
-                events.append(event)
+                # The final event contains result.metrics. Copy it before the
+                # debug event list is attached to those metrics, otherwise the
+                # MCP serializer observes a reference cycle.
+                events.append(copy.deepcopy(event))
             current = _STAGE_PROGRESS.get(str(event.get("stage")), 50)
             message = str(event.get("message") or event.get("stage") or "routing")
             future = asyncio.run_coroutine_threadsafe(

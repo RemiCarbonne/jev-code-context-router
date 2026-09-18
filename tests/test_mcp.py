@@ -39,7 +39,12 @@ def test_mcp_route_returns_structured_metrics_and_progress(tmp_path):
         async with Client(create_server()) as client:
             result = await client.call_tool(
                 "route_code_context",
-                {"query": "Refactor src/Root.tsx and identify the exact symbols", "cwd": str(tmp_path)},
+                {
+                    "query": "Refactor src/Root.tsx and identify the exact symbols",
+                    "cwd": str(tmp_path),
+                    "debug": True,
+                    "timeout_seconds": 5,
+                },
                 progress_callback=on_progress,
             )
             assert not result.is_error
@@ -47,6 +52,7 @@ def test_mcp_route_returns_structured_metrics_and_progress(tmp_path):
             assert payload["status"] == "routed"
             assert payload["metrics"]["files_indexed"] == 1
             assert payload["metrics"]["seconds"] >= 0
+            assert payload["metrics"]["debug_events"]
 
     asyncio.run(scenario())
     assert progress

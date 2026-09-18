@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jev-context-router"
+version = "0.1.0"
+description = "Repository-aware context routing for coding agents, powered by Jev or a local selector."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "DazzStudio"}]
+keywords = ["agents", "context", "routing", "jev", "hermes", "claude-code", "codex", "mcp"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=2.2,<3"]
+dev = ["pytest>=8", "pytest-cov>=5"]
+
+[project.scripts]
+jev-context = "jev_context_router.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jev_context_router"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["jev_context_router"]
+branch = true

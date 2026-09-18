@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jev-context claude-hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

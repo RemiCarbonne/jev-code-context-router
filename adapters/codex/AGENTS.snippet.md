@@ -1,0 +1,1 @@
+Before exploring the repository broadly for an actionable coding task, call the `route_code_context` MCP tool with the full user request and the current working directory. Use the returned bounded context first. If it reports repository ambiguity, ask the user which project is intended. Read additional files only when the routed context is demonstrably insufficient.

@@ -1,0 +1,121 @@
+# Jev Context Router
+
+Repository-aware, read-only source-context routing for coding agents. The core library discovers repositories dynamically, resolves the intended project without guessing from unrelated assistant history, indexes multiple programming languages, asks TypeSafe Jev to select useful symbols, expands dependencies locally, and injects a bounded context into an agent turn.
+
+> Alpha software. The public API and adapters may change before 1.0.
+
+## Supported integrations
+
+- Hermes Agent: `pre_llm_call` plugin
+- Claude Code: `UserPromptSubmit` hook
+- OpenAI Codex and other clients: stdio MCP server
+- Any agent or script: Python API and `jev-context` CLI
+
+## Design principles
+
+- no hard-coded project names or private paths;
+- one repository boundary per route;
+- current prompt and working directory take precedence;
+- previous user messages are consulted only for pure continuations such as `continue`;
+- assistant history never selects a repository;
+- secret-like files, symlink escapes, caches, dependencies and generated files are excluded;
+- TypeSafe receives only a bounded shortlist of redacted source candidates;
+- local-only fallback works without an API key.
+
+## Quick start
+
+```bash
+uv tool install jev-context-router
+export TYPESAFE_API_KEY=...
+cd ~/code/my-project
+jev-context route "Fix the failing payment idempotency test"
+```
+
+From a source checkout:
+
+```bash
+uv sync --extra dev
+uv run pytest
+uv run jev-context route "Fix the router tests" --cwd .
+```
+
+## Configuration
+
+Copy `jev-context.example.toml` to either:
+
+- `./jev-context.toml`; or
+- `~/.config/jev-context-router/config.toml`.
+
+```toml
+workspace_roots = ["~/code"]
+model = "jev-latest"
+max_context_chars = 12000
+
+[repository_aliases]
+web = "~/code/acme-web"
+```
+
+`workspace_roots` are security boundaries. Configured aliases cannot grant access outside them.
+
+## Hermes Agent
+
+```bash
+uv tool install jev-context-router
+jev-context install hermes --home ~/.hermes
+hermes plugins enable jev-context-router
+```
+
+The adapter uses the documented `pre_llm_call` hook and injects context into the current user-message copy. It does not alter the cached system prompt or expose tools.
+
+## Claude Code
+
+```bash
+uv tool install jev-context-router
+jev-context install claude --project .
+```
+
+This adds an idempotent `UserPromptSubmit` command hook to `.claude/settings.local.json`. The hook emits `hookSpecificOutput.additionalContext` as required by Claude Code.
+
+## Codex / MCP
+
+```bash
+uv tool install 'jev-context-router[mcp]'
+codex mcp add jev-context --env TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- jev-context mcp-serve
+```
+
+Then instruct Codex in `AGENTS.md` to call `route_code_context` before broad repository search. See `adapters/codex/README.md`.
+
+## Language support
+
+Python uses the standard-library AST and gets exact classes, functions, methods, references and calls. A dependency-free structural indexer supports JavaScript, TypeScript, Go, Rust, Java, Kotlin, PHP, Ruby, C#, C/C++, Swift and Scala. Generic-language extraction is intentionally conservative; Tree-sitter and LSP enrichments are planned as optional adapters.
+
+## Data flow and privacy
+
+1. Repository discovery and lexical ranking run locally.
+2. If `TYPESAFE_API_KEY` is configured, Jev receives:
+   - the current request;
+   - repository metadata when the repository is ambiguous;
+   - a bounded, redacted shortlist of source symbols.
+3. Full selected symbols and dependency expansion stay local and are injected into the downstream agent.
+
+Run without `TYPESAFE_API_KEY` for local-only lexical routing. Never put secrets in source files; filename filters and redaction reduce risk but are not a substitute for secret management.
+
+## Status codes
+
+- `routed`: context was selected;
+- `not-code`: no coding action was detected;
+- `repository-unresolved`: more than one project remains plausible;
+- `no-supported-source`: repository found, no supported source files;
+- `no-candidates`: source indexed, no relevant symbol found.
+
+## Development
+
+```bash
+uv sync --extra dev
+uv run pytest
+uv build
+```
+
+## License
+
+MIT

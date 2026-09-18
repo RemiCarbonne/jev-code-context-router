@@ -8,6 +8,7 @@ import urllib.request
 from typing import Protocol
 
 from .config import Settings
+from .errors import ExternalProviderError
 from .models import Repository, Selection, Symbol
 
 _SECRET_ASSIGNMENT = re.compile(r"(?i)\b(api[_-]?key|token|password|secret|credential)\s*[:=]\s*['\"]?[^\s,'\"]+")
@@ -49,8 +50,8 @@ class JevSelector:
         try:
             with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
                 result = json.loads(response.read().decode())
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"TypeSafe request failed: {type(exc).__name__}") from exc
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise ExternalProviderError("TypeSafe", exc) from exc
         answers = result.get("answers")
         if not isinstance(answers, dict):
             raise RuntimeError("TypeSafe response has no answers map")

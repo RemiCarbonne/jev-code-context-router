@@ -21,6 +21,27 @@ jev-context route \
 
 Stages are `intent`, `discovery`, `external-repository-selection`, `indexing`, `ranking`, `external-selection`, `expansion`, and `complete`.
 
+## Diagnose external selector fallback
+
+The router keeps working with a local shortlist when TypeSafe fails. Inspect these result fields:
+
+```text
+metrics.selector_error
+metrics.selector_error_status_code
+metrics.selector_error_message
+metrics.metrics_persistence.status
+```
+
+HTTP authentication failures appear as `TypeSafe request failed: HTTPError status=401` or `status=403`. Transport timeouts, network failures, and invalid JSON remain distinct (`TimeoutError`, `URLError`, and `JSONDecodeError`). Messages are deliberately sanitized and never include the bearer token or low-level exception details.
+
+To persist one secret-safe JSON object per route:
+
+```bash
+export JEV_CONTEXT_METRICS="$HOME/.local/state/jev-context-router/metrics.jsonl"
+```
+
+Alternatively set `metrics_path` in `jev-context.toml`. Persistence remains opt-in; no file is created otherwise.
+
 ## 0.1.0 TypeScript/JavaScript slowdown
 
 Version 0.1.0 enumerated `sorted(root.rglob("*"))` before applying `PathPolicy`. Although files under `node_modules` were eventually rejected, the filesystem had already traversed and sorted every dependency file. On WSL repositories stored below `/mnt/*`, this could take minutes and produced no output because CLI diagnostics did not yet exist.

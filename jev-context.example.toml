@@ -15,6 +15,9 @@ max_selected = 4
 local_fallback_selected = 2
 repository_confidence = 0.58
 
+# Optional JSONL telemetry. Source context and API keys are never written.
+# metrics_path = "~/.local/state/jev-context-router/metrics.jsonl"
+
 # Optional aliases. They never grant access outside workspace_roots.
 [repository_aliases]
 web = "~/code/acme-web"

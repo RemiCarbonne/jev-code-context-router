@@ -4,6 +4,15 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-18
+
+### Fixed
+
+- Preserve the original external selector failure type through bounded stage wrappers.
+- Report secret-safe HTTP status codes for TypeSafe 401/403 failures.
+- Distinguish HTTP, timeout, network, and invalid JSON failures in metrics and progress events.
+- Expose whether persistent JSONL metrics are configured.
+
 ## [0.1.3] - 2026-09-18
 
 ### Added

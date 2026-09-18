@@ -64,12 +64,15 @@ discovery_timeout_seconds = 5
 index_timeout_seconds = 15
 external_timeout_seconds = 18
 max_source_files = 25000
+metrics_path = "~/.local/state/jev-context-router/metrics.jsonl"
 
 [repository_aliases]
 web = "~/code/acme-web"
 ```
 
 `workspace_roots` are security boundaries. Configured aliases cannot grant access outside them.
+
+Persistent metrics are opt-in. Configure `metrics_path` above or export `JEV_CONTEXT_METRICS`. When disabled, every result reports `metrics.metrics_persistence.status = "disabled"`. External selector failures preserve only secret-safe diagnostics: `selector_error`, `selector_error_status_code`, and `selector_error_message`. For example, an expired credential is reported as `TypeSafe request failed: HTTPError status=401`; authorization headers and API keys are never logged.
 
 ## Hermes Agent
 

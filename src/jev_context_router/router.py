@@ -23,6 +23,24 @@ from .security import PathPolicy
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 
+def _selector_failure(exc: Exception) -> dict[str, Any]:
+    """Return secret-safe diagnostics while unwrapping the bounded stage wrapper."""
+    if isinstance(exc, RoutingStageError):
+        error_type = exc.exception_type
+        status_code = exc.status_code
+        message = exc.safe_message
+    else:
+        error_type = type(exc).__name__
+        status = getattr(exc, "code", None)
+        status_code = status if isinstance(status, int) else None
+        message = f"External selector failed: {error_type}"
+    return {
+        "selector_error": error_type,
+        "selector_error_status_code": status_code,
+        "selector_error_message": message,
+    }
+
+
 def _bounded_call(function: Callable[[], Any], timeout: float, stage: str) -> Any:
     """Run a stage behind a hard wall-clock bound without blocking process exit."""
     if timeout <= 0:
@@ -110,6 +128,10 @@ class ContextRouter:
         base_metrics: dict[str, Any] = {
             "model": self.settings.model if isinstance(self.selector, JevSelector) else "local",
             "external_provider": "typesafe-jev" if isinstance(self.selector, JevSelector) else None,
+            "metrics_persistence": {
+                "enabled": self.settings.metrics_path is not None,
+                "status": "configured" if self.settings.metrics_path is not None else "disabled",
+            },
         }
         try:
             emit("intent", message="Classifying coding intent")
@@ -150,7 +172,9 @@ class ContextRouter:
                 except RoutingTimeout:
                     raise
                 except Exception as exc:
-                    repository_metrics["selector_error"] = type(exc).__name__
+                    failure = _selector_failure(exc)
+                    repository_metrics.update(failure)
+                    emit("external-repository-selection", message=failure["selector_error_message"], **failure)
                 stage_seconds["repository_selection"] = time.perf_counter() - stage_started
             if repository is None:
                 return finish(RouteResult(
@@ -232,8 +256,18 @@ class ContextRouter:
                 raise
             except Exception as exc:
                 selection = LocalSelector().select_symbols(query, repository, candidates, self.settings)
-                selector_error = type(exc).__name__
-                emit("external-selection", message="Selector failed; using local fallback", error=selector_error)
+                selector_failure = _selector_failure(exc)
+                emit(
+                    "external-selection",
+                    message=f'{selector_failure["selector_error_message"]}; using local fallback',
+                    **selector_failure,
+                )
+            else:
+                selector_failure = {
+                    "selector_error": "",
+                    "selector_error_status_code": None,
+                    "selector_error_message": "",
+                }
             stage_seconds["selection"] = time.perf_counter() - stage_started
 
             selected = [index.by_id[symbol_id] for symbol_id in selection.ids if symbol_id in index.by_id]
@@ -256,7 +290,7 @@ class ContextRouter:
                 "selector_input_tokens": selection.input_tokens,
                 "selector_output_tokens": selection.output_tokens,
                 "selector_seconds": selection.seconds,
-                "selector_error": selector_error,
+                **selector_failure,
                 "context_bytes": context_bytes,
                 "estimated_context_tokens": math.ceil(context_bytes / 4),
             }

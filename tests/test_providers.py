@@ -82,7 +82,9 @@ def _typescript_repo(root):
 def test_http_selector_failure_preserves_safe_status_and_persistent_metrics(tmp_path, monkeypatch, status_code):
     _typescript_repo(tmp_path)
     metrics_path = tmp_path / "router-metrics.jsonl"
-    settings = Settings(workspace_roots=(tmp_path,), metrics_path=metrics_path)
+    settings = Settings(
+        workspace_roots=(tmp_path,), metrics_path=metrics_path, lexical_enabled=False
+    )
 
     def unauthorized(*args, **kwargs):
         raise urllib.error.HTTPError("https://api.typesafe.ai", status_code, "Unauthorized", Message(), None)
@@ -108,7 +110,7 @@ def test_http_selector_failure_preserves_safe_status_and_persistent_metrics(tmp_
 
 def test_invalid_json_selector_failure_preserves_original_type(tmp_path, monkeypatch):
     _typescript_repo(tmp_path)
-    settings = Settings(workspace_roots=(tmp_path,))
+    settings = Settings(workspace_roots=(tmp_path,), lexical_enabled=False)
 
     class InvalidJsonResponse:
         def __enter__(self):
@@ -142,7 +144,7 @@ def test_transport_selector_failure_is_typed_without_leaking_details(
     tmp_path, monkeypatch, failure, expected_type
 ):
     _typescript_repo(tmp_path)
-    settings = Settings(workspace_roots=(tmp_path,))
+    settings = Settings(workspace_roots=(tmp_path,), lexical_enabled=False)
 
     def fail(*args, **kwargs):
         raise failure

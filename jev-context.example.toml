@@ -10,12 +10,18 @@ external_timeout_seconds = 18.0
 max_source_files = 25000
 max_symbols = 75000
 max_context_chars = 12000
+lexical_enabled = true
+lexical_timeout_seconds = 0.5
+lexical_max_files = 40
+lexical_max_terms = 12
+lexical_min_distinct_terms = 2
+lexical_min_margin = 1
 shortlist_size = 20
 max_selected = 4
 local_fallback_selected = 2
 repository_confidence = 0.58
 
-# Optional JSONL telemetry. Source context and API keys are never written.
+# Optional JSONL telemetry. Prompts, source context, and API keys are never written.
 # metrics_path = "~/.local/state/jev-context-router/metrics.jsonl"
 
 # Optional aliases. They never grant access outside workspace_roots.

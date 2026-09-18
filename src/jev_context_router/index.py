@@ -180,6 +180,7 @@ def index_repository(
     repository: Repository,
     policy: PathPolicy | None = None,
     *,
+    include_paths: Iterable[Path] | None = None,
     deadline: float | None = None,
     max_files: int = 25_000,
     max_symbols: int = 75_000,
@@ -197,51 +198,60 @@ def index_repository(
         if deadline is not None and time.monotonic() >= deadline:
             raise RoutingTimeout("indexing", "Repository indexing exceeded its configured timeout.")
 
-    # Path.rglob() cannot prune excluded trees and previously traversed every file in
-    # node_modules before PathPolicy rejected it. os.walk(topdown=True) lets us remove
-    # dependency/build/cache directories before the filesystem visits their contents.
-    for directory, names, filenames in os.walk(root, topdown=True, followlinks=False):
-        check_deadline()
-        names[:] = sorted(
-            name for name in names
-            if name.lower() not in policy.excluded_parts and not (Path(directory) / name).is_symlink()
-        )
-        for filename in sorted(filenames):
+    def iter_paths() -> Iterable[Path]:
+        if include_paths is not None:
+            normalized = {
+                (path if path.is_absolute() else root / path).resolve()
+                for path in include_paths
+            }
+            yield from sorted(normalized, key=lambda path: path.as_posix())
+            return
+        # Path.rglob() cannot prune excluded trees. os.walk(topdown=True) lets us
+        # remove dependency/build/cache directories before visiting their contents.
+        for directory, names, filenames in os.walk(root, topdown=True, followlinks=False):
             check_deadline()
-            path = Path(directory) / filename
-            language = EXTENSION_LANGUAGE.get(path.suffix.lower())
-            if not language:
-                continue
-            files_seen += 1
-            if files_seen > max_files:
-                raise RoutingLimitExceeded(
-                    "indexing", f"Repository contains more than {max_files} supported source files."
-                )
-            if not policy.allows(root, path):
-                continue
-            try:
-                source = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
-                continue
-            relative = path.relative_to(root).as_posix()
-            if len(candidate_files) < 200:
-                candidate_files.append(relative)
-            files_indexed += 1
-            bytes_read += len(source.encode("utf-8"))
-            extracted = _python_symbols(root, path, source) if language == "python" else _generic_symbols(root, path, source, language)
-            symbols.extend(extracted)
-            if len(symbols) > max_symbols:
-                raise RoutingLimitExceeded(
-                    "indexing", f"Repository produced more than {max_symbols} source symbols."
-                )
-            if progress and (files_indexed == 1 or files_indexed % 250 == 0):
-                progress({
-                    "files_seen": files_seen,
-                    "files_indexed": files_indexed,
-                    "symbols_indexed": len(symbols),
-                    "bytes_read": bytes_read,
-                    "current_file": relative,
-                })
+            names[:] = sorted(
+                name for name in names
+                if name.lower() not in policy.excluded_parts and not (Path(directory) / name).is_symlink()
+            )
+            for filename in sorted(filenames):
+                yield Path(directory) / filename
+
+    for path in iter_paths():
+        check_deadline()
+        language = EXTENSION_LANGUAGE.get(path.suffix.lower())
+        if not language:
+            continue
+        files_seen += 1
+        if files_seen > max_files:
+            raise RoutingLimitExceeded(
+                "indexing", f"Repository contains more than {max_files} supported source files."
+            )
+        if not policy.allows(root, path):
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        relative = path.relative_to(root).as_posix()
+        if len(candidate_files) < 200:
+            candidate_files.append(relative)
+        files_indexed += 1
+        bytes_read += len(source.encode("utf-8"))
+        extracted = _python_symbols(root, path, source) if language == "python" else _generic_symbols(root, path, source, language)
+        symbols.extend(extracted)
+        if len(symbols) > max_symbols:
+            raise RoutingLimitExceeded(
+                "indexing", f"Repository produced more than {max_symbols} source symbols."
+            )
+        if progress and (files_indexed == 1 or files_indexed % 250 == 0):
+            progress({
+                "files_seen": files_seen,
+                "files_indexed": files_indexed,
+                "symbols_indexed": len(symbols),
+                "bytes_read": bytes_read,
+                "current_file": relative,
+            })
     stats = {
         "files_seen": files_seen,
         "files_indexed": files_indexed,
@@ -249,5 +259,6 @@ def index_repository(
         "bytes_read": bytes_read,
         "candidate_files": candidate_files,
         "candidate_files_truncated": max(0, files_indexed - len(candidate_files)),
+        "index_mode": "partial" if include_paths is not None else "full",
     }
     return CodeIndex(repository, symbols, stats)

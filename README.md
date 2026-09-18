@@ -8,7 +8,7 @@ Repository-aware, read-only source-context routing for coding agents. The core l
 
 - Hermes Agent: `pre_llm_call` plugin
 - Claude Code: `UserPromptSubmit` hook
-- OpenAI Codex and other clients: stdio MCP server
+- OpenAI Codex: direct `UserPromptSubmit` hook or stdio MCP server
 - Any agent or script: Python API and `jev-context` CLI
 
 ## Design principles
@@ -64,6 +64,9 @@ discovery_timeout_seconds = 5
 index_timeout_seconds = 15
 external_timeout_seconds = 18
 max_source_files = 25000
+lexical_enabled = true
+lexical_timeout_seconds = 0.5
+lexical_max_files = 40
 metrics_path = "~/.local/state/jev-context-router/metrics.jsonl"
 
 [repository_aliases]
@@ -73,6 +76,8 @@ web = "~/code/acme-web"
 `workspace_roots` are security boundaries. Configured aliases cannot grant access outside them.
 
 Persistent metrics are opt-in. Configure `metrics_path` above or export `JEV_CONTEXT_METRICS`. When disabled, every result reports `metrics.metrics_persistence.status = "disabled"`. External selector failures preserve only secret-safe diagnostics: `selector_error`, `selector_error_status_code`, and `selector_error_message`. For example, an expired credential is reported as `TypeSafe request failed: HTTPError status=401`; authorization headers and API keys are never logged.
+
+When ripgrep is available, explicit source paths or several distinctive identifiers concentrated in one file activate a bounded lexical fast path. Only matched source files are structurally parsed and the external Jev call is skipped. Broad, semantic, ambiguous, timed-out, unavailable, or overly large searches fall back to the complete structural/Jev pipeline. Metrics expose `retrieval_mode`, lexical timings and counts, confidence, fallback reason, and `jev_skipped`; literal query terms are never logged.
 
 ## Hermes Agent
 

@@ -32,3 +32,35 @@ def test_secret_files_and_escaping_symlinks_are_excluded_without_hiding_auth_cod
         assert "escape.py" not in paths
     finally:
         outside.unlink(missing_ok=True)
+
+
+def test_partial_index_reads_only_allowed_included_paths(tmp_path):
+    selected = tmp_path / "selected.ts"
+    unrelated = tmp_path / "unrelated.ts"
+    secret = tmp_path / ".env.ts"
+    selected.write_text("export const selectedHandler = () => true;\n")
+    unrelated.write_text("export const unrelatedHandler = () => false;\n")
+    secret.write_text("export const leakedSecret = 'no';\n")
+
+    index = index_repository(
+        Repository(tmp_path, "demo"),
+        include_paths=(selected, unrelated, secret),
+        max_files=10,
+    )
+
+    assert index.stats["index_mode"] == "partial"
+    assert index.stats["files_indexed"] == 2
+    assert index.stats["candidate_files"] == ["selected.ts", "unrelated.ts"]
+    assert {symbol.path for symbol in index.symbols} == {"selected.ts", "unrelated.ts"}
+
+
+def test_generated_out_directory_is_pruned(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.ts").write_text("export const main = () => true;\n")
+    (tmp_path / "out" / "vendored-runtime").mkdir(parents=True)
+    (tmp_path / "out" / "vendored-runtime" / "generated.ts").write_text(
+        "export const generated = () => false;\n"
+    )
+    index = index_repository(Repository(tmp_path, "demo"))
+    assert index.stats["files_indexed"] == 1
+    assert {symbol.path for symbol in index.symbols} == {"src/main.ts"}

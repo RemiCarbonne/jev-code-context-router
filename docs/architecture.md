@@ -15,7 +15,9 @@ prompt
   -> code-intent gate
   -> repository discovery
   -> repository resolution
-  -> safe source index
+  -> bounded ripgrep lexical probe
+     -> high confidence: partial safe source index, local selection
+     -> otherwise: complete safe source index
   -> lexical shortlist
   -> Jev fit/current selection (optional)
   -> deterministic dependency expansion
@@ -33,6 +35,14 @@ prompt
 
 Repository selection sends metadata only. Source bodies are not read until one repository has been selected.
 
+## Lexical fast path
+
+After resolving one repository, the router extracts explicit source paths and distinctive literal identifiers. It invokes ripgrep with fixed-string patterns as an argument vector, never through a shell. Returned paths are revalidated by `PathPolicy` before any source body is read.
+
+An existing explicit source path is high confidence. Otherwise, at least two distinct terms must be concentrated in the leading file with a configured margin over the next candidate. High-confidence matches are partially indexed and selected locally, avoiding both the full repository walk and the external Jev request. A single shared identifier, semantic prose, excess matches, timeout, missing ripgrep, or any execution error preserves the complete existing pipeline.
+
+The fast path is an optimization, not a new trust boundary. File size limits, secret-name exclusions, symlink containment, symbol budgets, context budgets, and read-only behavior remain unchanged. Query terms are not persisted in metrics.
+
 ## Indexing
 
 Python uses the standard-library AST and extracts classes, functions, async functions, methods, imports, calls, and references. JavaScript, TypeScript, Go, Rust, Java, Kotlin, PHP, Ruby, C#, C/C++, Swift, and Scala use a dependency-free structural parser with brace-aware declaration extraction. Unknown but allowed source files are represented by bounded module chunks.
@@ -41,7 +51,7 @@ The generic parser is deliberately conservative. A future Tree-sitter extra can 
 
 ## Selection
 
-The local scorer combines prompt/name overlap, path overlap, source overlap, and test affinity. It produces a small shortlist. When configured, Jev evaluates only that shortlist using independent `fit` and `current` questions. If the remote selector fails or accepts nothing, the deterministic local top candidates remain available.
+The local scorer combines prompt/name overlap, path overlap, source overlap, and test affinity. It produces a small shortlist. A high-confidence ripgrep route selects the leading local candidates directly. Otherwise, when configured, Jev evaluates only the full-index shortlist using independent `fit` and `current` questions. If the remote selector fails or accepts nothing, the deterministic local top candidates remain available.
 
 Expansion then adds:
 

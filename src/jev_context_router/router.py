@@ -14,7 +14,8 @@ from .discovery import discover_repositories, resolve_repository
 from .errors import RoutingLimitExceeded, RoutingStageError, RoutingTimeout
 from .index import index_repository
 from .intent import is_code_request
-from .models import RouteResult
+from .lexical import LexicalResult, retrieve_lexical_candidates
+from .models import RouteResult, Selection
 from .providers import JevSelector, LocalSelector, Selector
 from .ranking import expand_context, shortlist
 from .render import render_context
@@ -79,6 +80,7 @@ class ContextRouter:
             return
         row = result.to_dict()
         row.pop("context", None)
+        row.pop("query", None)
         row["timestamp"] = time.time()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -184,6 +186,35 @@ class ContextRouter:
                 ))
 
             policy = PathPolicy(max_file_bytes=self.settings.max_file_bytes)
+            emit("lexical-search", message="Searching for distinctive literal code signals")
+            try:
+                lexical = _bounded_call(
+                    lambda: retrieve_lexical_candidates(repository, query, self.settings, policy),
+                    remaining(self.settings.lexical_timeout_seconds + 0.5, "lexical-search"),
+                    "lexical-search",
+                )
+            except Exception as exc:
+                lexical = LexicalResult(
+                    "error", reason=f"lexical-error-{type(exc).__name__}"
+                )
+            partial_paths = lexical.paths if lexical.high_confidence else None
+            lexical_metrics: dict[str, Any] = {
+                "retrieval_mode": "rg-fast-path" if partial_paths else "structural-full",
+                "lexical_status": lexical.status,
+                "lexical_seconds": lexical.seconds,
+                "lexical_terms_count": lexical.terms_count,
+                "lexical_matched_files": lexical.matched_files,
+                "lexical_top_score": lexical.top_score,
+                "lexical_second_score": lexical.second_score,
+                "lexical_confidence": "high" if lexical.high_confidence else "fallback",
+                "lexical_fallback_reason": "" if lexical.high_confidence else lexical.reason,
+                "jev_skipped": lexical.high_confidence,
+            }
+            emit(
+                "lexical-search",
+                message="Using lexical fast path" if partial_paths else "Using structural fallback",
+                **lexical_metrics,
+            )
             stage_started = time.perf_counter()
             emit("indexing", message="Indexing supported source files", repository=repository.name)
             index_deadline = min(deadline, time.perf_counter() + self.settings.index_timeout_seconds)
@@ -196,20 +227,50 @@ class ContextRouter:
                 lambda: index_repository(
                     repository,
                     policy,
+                    include_paths=partial_paths,
                     deadline=index_deadline,
-                    max_files=self.settings.max_source_files,
+                    max_files=(
+                        min(self.settings.max_source_files, self.settings.lexical_max_files)
+                        if partial_paths else self.settings.max_source_files
+                    ),
                     max_symbols=self.settings.max_symbols,
                     progress=index_progress,
                 ),
                 remaining(self.settings.index_timeout_seconds, "indexing"),
                 "indexing",
             )
+            if partial_paths and not index.symbols:
+                emit(
+                    "lexical-search",
+                    message="Partial index was empty; using structural fallback",
+                    lexical_fallback_reason="partial-index-empty",
+                )
+                partial_paths = None
+                lexical_metrics.update({
+                    "retrieval_mode": "structural-full",
+                    "lexical_confidence": "fallback",
+                    "lexical_fallback_reason": "partial-index-empty",
+                    "jev_skipped": False,
+                })
+                index = _bounded_call(
+                    lambda: index_repository(
+                        repository,
+                        policy,
+                        deadline=index_deadline,
+                        max_files=self.settings.max_source_files,
+                        max_symbols=self.settings.max_symbols,
+                        progress=index_progress,
+                    ),
+                    remaining(self.settings.index_timeout_seconds, "indexing"),
+                    "indexing",
+                )
             stage_seconds["indexing"] = time.perf_counter() - stage_started
             index_metrics = dict(index.stats)
             emit("indexing", message="Indexing complete", **index_metrics)
             common_metrics = {
                 **base_metrics,
                 "repository": repository_metrics,
+                **lexical_metrics,
                 **index_metrics,
                 "index_seconds": stage_seconds["indexing"],
             }
@@ -238,36 +299,50 @@ class ContextRouter:
                 ))
 
             stage_started = time.perf_counter()
-            emit(
-                "external-selection",
-                message="Calling external selector" if isinstance(self.selector, JevSelector) else "Using local selector",
-                provider=base_metrics["external_provider"] or "local",
-                model=base_metrics["model"],
-                candidate_count=len(candidates),
-            )
-            try:
-                selection = _bounded_call(
-                    lambda: self.selector.select_symbols(query, repository, candidates, self.settings),
-                    remaining(self.settings.external_timeout_seconds, "external-selection"),
-                    "external-selection",
+            if partial_paths:
+                selected_ids = tuple(
+                    symbol.id for symbol in candidates[: self.settings.max_selected]
                 )
-                selector_error = ""
-            except RoutingTimeout:
-                raise
-            except Exception as exc:
-                selection = LocalSelector().select_symbols(query, repository, candidates, self.settings)
-                selector_failure = _selector_failure(exc)
-                emit(
-                    "external-selection",
-                    message=f'{selector_failure["selector_error_message"]}; using local fallback',
-                    **selector_failure,
-                )
-            else:
+                selection = Selection(selected_ids, reason="lexical-fast-path")
                 selector_failure = {
                     "selector_error": "",
                     "selector_error_status_code": None,
                     "selector_error_message": "",
                 }
+                emit(
+                    "external-selection", message="Skipped external selector after high-confidence lexical match",
+                    provider="skipped", model=base_metrics["model"], candidate_count=len(candidates),
+                )
+            else:
+                emit(
+                    "external-selection",
+                    message="Calling external selector" if isinstance(self.selector, JevSelector) else "Using local selector",
+                    provider=base_metrics["external_provider"] or "local",
+                    model=base_metrics["model"],
+                    candidate_count=len(candidates),
+                )
+                try:
+                    selection = _bounded_call(
+                        lambda: self.selector.select_symbols(query, repository, candidates, self.settings),
+                        remaining(self.settings.external_timeout_seconds, "external-selection"),
+                        "external-selection",
+                    )
+                except RoutingTimeout:
+                    raise
+                except Exception as exc:
+                    selection = LocalSelector().select_symbols(query, repository, candidates, self.settings)
+                    selector_failure = _selector_failure(exc)
+                    emit(
+                        "external-selection",
+                        message=f'{selector_failure["selector_error_message"]}; using local fallback',
+                        **selector_failure,
+                    )
+                else:
+                    selector_failure = {
+                        "selector_error": "",
+                        "selector_error_status_code": None,
+                        "selector_error_message": "",
+                    }
             stage_seconds["selection"] = time.perf_counter() - stage_started
 
             selected = [index.by_id[symbol_id] for symbol_id in selection.ids if symbol_id in index.by_id]

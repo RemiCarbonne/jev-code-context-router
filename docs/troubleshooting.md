@@ -19,7 +19,9 @@ jev-context route \
 - `metrics.timeout_stage` identifies a timed-out stage.
 - Exit code `3` means timeout; other structured non-success results use exit code `2`.
 
-Stages are `intent`, `discovery`, `external-repository-selection`, `indexing`, `ranking`, `external-selection`, `expansion`, and `complete`.
+Stages are `intent`, `discovery`, `external-repository-selection`, `lexical-search`, `indexing`, `ranking`, `external-selection`, `expansion`, and `complete`.
+
+`lexical-search` runs between repository resolution and indexing when the ripgrep fast path is enabled. Inspect `metrics.retrieval_mode`, `lexical_status`, `lexical_confidence`, `lexical_fallback_reason`, and `jev_skipped`. Set `lexical_enabled = false` to compare or troubleshoot the complete structural path.
 
 ## Diagnose external selector fallback
 

@@ -55,7 +55,7 @@ def test_external_selection_timeout_is_structured_and_bounded(tmp_path):
     make_typescript_repo(tmp_path)
     settings = Settings(
         workspace_roots=(tmp_path,), route_timeout_seconds=0.15,
-        external_timeout_seconds=0.05,
+        external_timeout_seconds=0.05, lexical_enabled=False,
     )
     started = time.perf_counter()
     result = ContextRouter(settings, SleepingSelector()).route(QUERY, cwd=tmp_path)

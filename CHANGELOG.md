@@ -4,6 +4,18 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-18
+
+### Added
+
+- Add a bounded ripgrep fixed-string fast path for explicit source paths and concentrated distinctive identifiers.
+- Add partial structural indexing for policy-validated candidate paths.
+- Skip external Jev selection only for high-confidence lexical routes and expose fallback telemetry.
+
+### Changed
+
+- Prune generated `out` directories by default alongside `dist` and `build`.
+
 ## [0.1.4] - 2026-09-18
 
 ### Fixed

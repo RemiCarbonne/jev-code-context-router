@@ -29,6 +29,12 @@ class Settings:
     max_file_bytes: int = 300_000
     max_source_files: int = 25_000
     max_symbols: int = 75_000
+    lexical_enabled: bool = True
+    lexical_timeout_seconds: float = 0.5
+    lexical_max_files: int = 40
+    lexical_max_terms: int = 12
+    lexical_min_distinct_terms: int = 2
+    lexical_min_margin: int = 1
     metrics_path: Path | None = None
 
     @classmethod
@@ -63,6 +69,8 @@ class Settings:
                 "max_expanded_symbols", "max_context_chars", "candidate_chars",
                 "local_fallback_selected", "repository_confidence", "symbol_fit_threshold",
                 "symbol_current_threshold", "max_file_bytes", "max_source_files", "max_symbols",
+                "lexical_enabled", "lexical_timeout_seconds", "lexical_max_files",
+                "lexical_max_terms", "lexical_min_distinct_terms", "lexical_min_margin",
             )
             if name in raw
         }

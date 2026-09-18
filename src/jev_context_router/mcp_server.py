@@ -16,6 +16,7 @@ _STAGE_PROGRESS = {
     "intent": 2,
     "discovery": 12,
     "external-repository-selection": 22,
+    "lexical-search": 30,
     "indexing": 40,
     "ranking": 58,
     "external-selection": 70,

@@ -7,7 +7,7 @@ from pathlib import Path
 
 DEFAULT_EXCLUDED_PARTS = frozenset({
     ".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__",
-    "dist", "build", "coverage", ".mypy_cache", ".pytest_cache", ".next",
+    "dist", "build", "out", "coverage", ".mypy_cache", ".pytest_cache", ".next",
     ".nuxt", "target", "vendor", ".terraform", ".idea", ".vscode",
 })
 DEFAULT_EXCLUDED_NAME = re.compile(

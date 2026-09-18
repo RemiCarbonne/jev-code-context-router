@@ -28,6 +28,11 @@ dev = ["pytest>=8", "pytest-cov>=5"]
 [project.scripts]
 jev-context = "jev_context_router.cli:main"
 
+[project.urls]
+Documentation = "https://github.com/RemiCarbonne/jev-code-context-router#readme"
+Issues = "https://github.com/RemiCarbonne/jev-code-context-router/issues"
+Source = "https://github.com/RemiCarbonne/jev-code-context-router"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/jev_context_router"]
 

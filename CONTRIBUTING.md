@@ -5,8 +5,8 @@ Contributions are welcome for indexers, runtime adapters, security hardening, an
 ## Development
 
 ```bash
-git clone <repository-url>
-cd jev-context-router
+git clone https://github.com/RemiCarbonne/jev-code-context-router.git
+cd jev-code-context-router
 uv sync --all-extras
 uv run pytest
 uv build

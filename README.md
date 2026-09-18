@@ -31,6 +31,15 @@ cd ~/code/my-project
 jev-context route "Fix the failing payment idempotency test"
 ```
 
+For bounded execution with live diagnostics:
+
+```bash
+jev-context route --cwd . --format json --timeout 30 --debug \
+  "Refactor src/Root.tsx and identify the exact files and symbols required"
+```
+
+`stdout` remains valid JSON. Progress events are emitted as JSON Lines on `stderr` and include the current stage, timings, indexed file/byte counts, shortlisted and selected files, context bytes, token estimates, external provider/model, and cache status. A timeout returns a structured `status: "timeout"` result instead of hanging.
+
 From a source checkout:
 
 ```bash
@@ -50,6 +59,11 @@ Copy `jev-context.example.toml` to either:
 workspace_roots = ["~/code"]
 model = "jev-latest"
 max_context_chars = 12000
+route_timeout_seconds = 30
+discovery_timeout_seconds = 5
+index_timeout_seconds = 15
+external_timeout_seconds = 18
+max_source_files = 25000
 
 [repository_aliases]
 web = "~/code/acme-web"
@@ -85,6 +99,8 @@ codex mcp add jev-context --env TYPESAFE_API_KEY="$TYPESAFE_API_KEY" -- jev-cont
 
 Then instruct Codex in `AGENTS.md` to call `route_code_context` before broad repository search. See `adapters/codex/README.md`.
 
+The MCP tool returns the complete structured routing result and streams standard MCP progress notifications. It accepts optional `timeout_seconds` and `debug` arguments. With `debug: true`, the returned metrics also include the ordered progress events.
+
 ## Language support
 
 Python uses the standard-library AST and gets exact classes, functions, methods, references and calls. A dependency-free structural indexer supports JavaScript, TypeScript, Go, Rust, Java, Kotlin, PHP, Ruby, C#, C/C++, Swift and Scala. Generic-language extraction is intentionally conservative; Tree-sitter and LSP enrichments are planned as optional adapters.
@@ -107,6 +123,9 @@ Run without `TYPESAFE_API_KEY` for local-only lexical routing. Never put secrets
 - `repository-unresolved`: more than one project remains plausible;
 - `no-supported-source`: repository found, no supported source files;
 - `no-candidates`: source indexed, no relevant symbol found.
+- `timeout`: a named stage exceeded its explicit wall-clock bound;
+- `limit-exceeded`: repository file or symbol safety budget exceeded;
+- `error`: an unexpected failure occurred, with stage, exception type, and traceback in metrics.
 
 ## Development
 

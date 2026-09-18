@@ -5,4 +5,4 @@ from .models import RouteResult
 from .router import ContextRouter
 
 __all__ = ["ContextRouter", "RouteResult", "Settings"]
-__version__ = "0.1.0"
+__version__ = "0.1.1"

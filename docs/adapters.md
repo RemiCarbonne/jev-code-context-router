@@ -35,8 +35,10 @@ Add the optional `adapters/codex/AGENTS.snippet.md` content to the repository's 
 
 The stdio server exposes:
 
-- `route_code_context(query, cwd)`;
+- `route_code_context(query, cwd, timeout_seconds, debug)`;
 - `discover_code_repositories(cwd)`.
+
+`route_code_context` returns a structured object containing `status`, `context`, selected symbols, and metrics. Standard MCP progress notifications report the active stage. `timeout_seconds` bounds the complete call; `debug=true` also includes the progress event list in the result.
 
 ## Any MCP client
 
@@ -53,7 +55,7 @@ The MCP dependency is optional. The core CLI, Hermes adapter, and Claude hook ha
 ```bash
 jev-context discover --cwd .
 jev-context route "Fix tenant scoping in refund lookup" --cwd .
-jev-context route "Implement the TypeScript cache invalidation" --cwd . --format json
+jev-context route "Implement the TypeScript cache invalidation" --cwd . --format json --timeout 30 --debug
 ```
 
-Exit status remains zero for safe non-routing outcomes such as `not-code` or `repository-unresolved`; inspect the JSON `status` when automating.
+Exit status is zero for `routed` and `not-code`, three for `timeout`, and two for other structured non-success outcomes. Inspect the JSON `status` when automating.

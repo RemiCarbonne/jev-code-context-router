@@ -42,7 +42,7 @@ def register(ctx):
 _HERMES_MANIFEST = '''manifest_version: 2
 api_version: 1
 name: jev-context-router
-version: 0.1.0
+version: 0.1.1
 description: "Repository-aware Jev context routing for coding turns."
 author: DazzStudio
 kind: standalone

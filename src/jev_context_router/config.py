@@ -13,6 +13,10 @@ class Settings:
     model: str = "jev-latest"
     endpoint: str = "https://api.typesafe.ai/v1/systemone"
     timeout_seconds: float = 15.0
+    route_timeout_seconds: float = 30.0
+    discovery_timeout_seconds: float = 5.0
+    index_timeout_seconds: float = 15.0
+    external_timeout_seconds: float = 18.0
     shortlist_size: int = 20
     max_selected: int = 4
     max_expanded_symbols: int = 20
@@ -23,6 +27,8 @@ class Settings:
     symbol_fit_threshold: float = 0.52
     symbol_current_threshold: float = 0.45
     max_file_bytes: int = 300_000
+    max_source_files: int = 25_000
+    max_symbols: int = 75_000
     metrics_path: Path | None = None
 
     @classmethod
@@ -52,10 +58,11 @@ class Settings:
         key_map = {
             name: raw[name]
             for name in (
-                "model", "endpoint", "timeout_seconds", "shortlist_size", "max_selected",
+                "model", "endpoint", "timeout_seconds", "route_timeout_seconds", "discovery_timeout_seconds",
+                "index_timeout_seconds", "external_timeout_seconds", "shortlist_size", "max_selected",
                 "max_expanded_symbols", "max_context_chars", "candidate_chars",
                 "local_fallback_selected", "repository_confidence", "symbol_fit_threshold",
-                "symbol_current_threshold", "max_file_bytes",
+                "symbol_current_threshold", "max_file_bytes", "max_source_files", "max_symbols",
             )
             if name in raw
         }

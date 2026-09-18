@@ -4,6 +4,20 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-18
+
+### Fixed
+
+- Prune `node_modules`, build output, caches, and vendored trees before filesystem traversal instead of rejecting their files after an exhaustive `Path.rglob()`.
+- Bound discovery, indexing, total routing, and external selection with structured timeout results.
+- Return structured MCP results and stream MCP progress notifications.
+
+### Added
+
+- CLI `--debug`, `--verbose`, and `--timeout` options.
+- Per-stage timings, file/byte counts, selected file lists, context bytes, token estimates, and explicit cache status.
+- TypeScript integration, hard-timeout, error-traceback, and MCP progress regression tests.
+
 ## [0.1.0] - 2026-09-18
 
 ### Added

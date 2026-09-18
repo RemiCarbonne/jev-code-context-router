@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
+from dataclasses import replace
 from pathlib import Path
 
 from .config import Settings
@@ -16,14 +18,30 @@ def _settings(args, cwd: Path) -> Settings:
 
 def command_route(args) -> int:
     cwd = Path(args.cwd).expanduser().resolve()
-    result = ContextRouter(_settings(args, cwd)).route(args.query, cwd=cwd, force=args.force)
+    settings = _settings(args, cwd)
+    if args.timeout is not None:
+        settings = replace(settings, route_timeout_seconds=args.timeout)
+
+    def debug_event(event: dict) -> None:
+        print(json.dumps(event, ensure_ascii=False), file=sys.stderr, flush=True)
+
+    result = ContextRouter(settings).route(
+        args.query,
+        cwd=cwd,
+        force=args.force,
+        progress=debug_event if args.debug or args.verbose else None,
+    )
     if args.format == "json":
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     elif result.context:
         print(result.context)
     else:
         print(json.dumps({"status": result.status, "message": result.message}, ensure_ascii=False))
-    return 0 if result.status in {"routed", "not-code"} else 2
+    if result.status in {"routed", "not-code"}:
+        return 0
+    if result.status == "timeout":
+        return 3
+    return 2
 
 
 def command_discover(args) -> int:
@@ -82,6 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--config")
     route.add_argument("--format", choices=("context", "json"), default="context")
     route.add_argument("--force", action="store_true")
+    route.add_argument("--timeout", type=float, help="Total wall-clock timeout in seconds (default: configuration value).")
+    route.add_argument("--debug", action="store_true", help="Stream JSON progress and full errors to stderr.")
+    route.add_argument("--verbose", action="store_true", help="Alias for --debug.")
     route.set_defaults(func=command_route)
     discover = sub.add_parser("discover", help="List repositories visible under configured workspace roots.")
     discover.add_argument("--cwd", default=".")
@@ -104,7 +125,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except Exception as exc:
+        payload = {
+            "status": "error",
+            "repository": None,
+            "context": "",
+            "selected_symbols": [],
+            "included_symbols": [],
+            "metrics": {"seconds": 0.0, "error_type": type(exc).__name__},
+            "message": str(exc) or type(exc).__name__,
+        }
+        if getattr(args, "format", None) == "json":
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps({"status": "error", "message": payload["message"]}, ensure_ascii=False))
+        if getattr(args, "debug", False) or getattr(args, "verbose", False):
+            traceback.print_exc(file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

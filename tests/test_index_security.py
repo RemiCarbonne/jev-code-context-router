@@ -64,3 +64,29 @@ def test_generated_out_directory_is_pruned(tmp_path):
     index = index_repository(Repository(tmp_path, "demo"))
     assert index.stats["files_indexed"] == 1
     assert {symbol.path for symbol in index.symbols} == {"src/main.ts"}
+
+
+def test_persistent_index_cache_reuses_and_incrementally_updates_files(tmp_path):
+    first = tmp_path / "first.ts"
+    second = tmp_path / "second.ts"
+    first.write_text("export const firstHandler = () => true;\n")
+    second.write_text("export const secondHandler = () => true;\n")
+    repository = Repository(tmp_path, "demo")
+    cache_path = tmp_path.parent / f"{tmp_path.name}-index-cache.json"
+    try:
+        cold = index_repository(repository, cache_path=cache_path)
+        warm = index_repository(repository, cache_path=cache_path)
+        second.write_text("export const changedSecondHandler = () => false;\n")
+        incremental = index_repository(repository, cache_path=cache_path)
+
+        assert cold.stats["cache"]["status"] == "cold"
+        assert cold.stats["cache"]["files_reparsed"] == 2
+        assert warm.stats["index_cache_hit"] is True
+        assert warm.stats["cache"]["files_reused"] == 2
+        assert warm.stats["bytes_read"] == 0
+        assert incremental.stats["cache"]["status"] == "incremental"
+        assert incremental.stats["cache"]["files_reused"] == 1
+        assert incremental.stats["cache"]["files_reparsed"] == 1
+        assert any(symbol.name == "changedSecondHandler" for symbol in incremental.symbols)
+    finally:
+        cache_path.unlink(missing_ok=True)

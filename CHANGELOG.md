@@ -4,6 +4,26 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-19
+
+### Added
+
+- Persist full repository indexes outside source trees and incrementally reparse files by nanosecond mtime and size.
+- Expose cold, warm, and incremental cache metrics, multilingual intent diagnostics, inclusion reasons, rejected low-score files, normalized network failure categories, and structured per-stage telemetry.
+- Add a reproducible synthetic benchmark for targeted, semantic, transversal, French, online-simulated, offline-simulated, cold, and warm routes.
+
+### Changed
+
+- Compact external selection to at most eight local candidates, 120 characters of signature each, one fit question per candidate, and a strict estimated 2,000-token request budget.
+- Bound provider I/O to 1.5 seconds and external selection to 2 seconds by default, with a short circuit breaker after failures.
+- Expand only positively relevant generic callers and neighbors, and keep candidate files separate from rendered files.
+- Route French debug, trace, implementation, file, function, pipeline, export, validation, and transaction requests as code with explicit confidence and matched signals.
+
+### Fixed
+
+- Treat lexical timeout or execution failure as a non-fatal structural-index fallback.
+- Restrict a high-confidence lexical route to the top-scoring cohort instead of parsing every file that matched any term.
+
 ## [0.2.0] - 2026-09-18
 
 ### Added

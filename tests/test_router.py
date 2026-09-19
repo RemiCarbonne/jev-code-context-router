@@ -115,6 +115,11 @@ def test_broad_single_identifier_keeps_structural_selector(tmp_path):
     assert result.metrics["retrieval_mode"] == "structural-full"
     assert result.metrics["jev_skipped"] is False
     assert result.metrics["lexical_fallback_reason"] == "insufficient-confidence"
+    assert set(result.metrics) >= {
+        "intent", "index", "lexical", "ranking", "external_selector",
+        "context", "fallback", "cache", "total",
+    }
+    assert result.metrics["context"]["included_files"] == result.metrics["included_files"]
 
 
 @pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep is optional")

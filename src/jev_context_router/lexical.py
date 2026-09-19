@@ -194,8 +194,9 @@ def retrieve_lexical_candidates(
         top_score >= settings.lexical_min_distinct_terms
         and top_score - second_score >= settings.lexical_min_margin
     )
+    selected_paths = tuple(item[2] for item in scored if item[0] == top_score) if high_confidence else tuple(item[2] for item in scored)
     return LexicalResult(
-        "matched", tuple(item[2] for item in scored), high_confidence,
+        "matched", selected_paths, high_confidence,
         "distinctive-term-concentration" if high_confidence else "insufficient-confidence",
         time.perf_counter() - started, len(terms), len(scored), top_score, second_score,
     )

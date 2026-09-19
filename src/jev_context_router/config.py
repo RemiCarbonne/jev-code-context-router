@@ -12,17 +12,20 @@ class Settings:
     repository_aliases: dict[str, Path] = field(default_factory=dict)
     model: str = "jev-latest"
     endpoint: str = "https://api.typesafe.ai/v1/systemone"
-    timeout_seconds: float = 15.0
+    timeout_seconds: float = 1.5
     route_timeout_seconds: float = 30.0
     discovery_timeout_seconds: float = 5.0
     index_timeout_seconds: float = 15.0
-    external_timeout_seconds: float = 18.0
-    shortlist_size: int = 20
+    external_timeout_seconds: float = 2.0
+    shortlist_size: int = 15
     max_selected: int = 4
     max_expanded_symbols: int = 20
     max_context_chars: int = 12_000
-    candidate_chars: int = 1_500
-    local_fallback_selected: int = 2
+    candidate_chars: int = 120
+    selector_max_candidates: int = 8
+    selector_max_input_tokens: int = 2_000
+    circuit_breaker_seconds: float = 30.0
+    local_fallback_selected: int = 4
     repository_confidence: float = 0.58
     symbol_fit_threshold: float = 0.52
     symbol_current_threshold: float = 0.45
@@ -35,6 +38,8 @@ class Settings:
     lexical_max_terms: int = 12
     lexical_min_distinct_terms: int = 2
     lexical_min_margin: int = 1
+    index_cache_enabled: bool = True
+    index_cache_dir: Path = field(default_factory=lambda: Path.home() / ".cache" / "jev-context-router" / "indexes")
     metrics_path: Path | None = None
 
     @classmethod
@@ -67,15 +72,19 @@ class Settings:
                 "model", "endpoint", "timeout_seconds", "route_timeout_seconds", "discovery_timeout_seconds",
                 "index_timeout_seconds", "external_timeout_seconds", "shortlist_size", "max_selected",
                 "max_expanded_symbols", "max_context_chars", "candidate_chars",
+                "selector_max_candidates", "selector_max_input_tokens", "circuit_breaker_seconds",
                 "local_fallback_selected", "repository_confidence", "symbol_fit_threshold",
                 "symbol_current_threshold", "max_file_bytes", "max_source_files", "max_symbols",
                 "lexical_enabled", "lexical_timeout_seconds", "lexical_max_files",
                 "lexical_max_terms", "lexical_min_distinct_terms", "lexical_min_margin",
+                "index_cache_enabled",
             )
             if name in raw
         }
         metrics = raw.get("metrics_path") or os.environ.get("JEV_CONTEXT_METRICS")
-        return cls(workspace_roots=roots, repository_aliases=aliases, metrics_path=resolve(metrics) if metrics else None, **key_map)
+        cache_dir = raw.get("index_cache_dir") or os.environ.get("JEV_CONTEXT_CACHE_DIR")
+        cache_kwargs = {"index_cache_dir": resolve(str(cache_dir))} if cache_dir else {}
+        return cls(workspace_roots=roots, repository_aliases=aliases, metrics_path=resolve(metrics) if metrics else None, **cache_kwargs, **key_map)
 
     @property
     def api_key(self) -> str:

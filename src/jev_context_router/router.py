@@ -12,12 +12,12 @@ from typing import Any, Callable
 from .config import Settings
 from .discovery import discover_repositories, resolve_repository
 from .errors import RoutingLimitExceeded, RoutingStageError, RoutingTimeout
-from .index import index_repository
-from .intent import is_code_request
+from .index import cache_path_for, index_repository
+from .intent import classify_code_request
 from .lexical import LexicalResult, retrieve_lexical_candidates
 from .models import RouteResult, Selection
 from .providers import JevSelector, LocalSelector, Selector
-from .ranking import expand_context, shortlist
+from .ranking import expand_context_detailed, shortlist
 from .render import render_context
 from .security import PathPolicy
 
@@ -30,15 +30,18 @@ def _selector_failure(exc: Exception) -> dict[str, Any]:
         error_type = exc.exception_type
         status_code = exc.status_code
         message = exc.safe_message
+        category = exc.category
     else:
         error_type = type(exc).__name__
         status = getattr(exc, "code", None)
         status_code = status if isinstance(status, int) else None
         message = f"External selector failed: {error_type}"
+        category = "timeout" if isinstance(exc, RoutingTimeout) else "unknown"
     return {
         "selector_error": error_type,
         "selector_error_status_code": status_code,
         "selector_error_message": message,
+        "external_error_reason": category,
     }
 
 
@@ -73,6 +76,7 @@ class ContextRouter:
         self.selector: Selector = selector or (
             JevSelector(self.settings.api_key, self.settings) if self.settings.api_key else LocalSelector()
         )
+        self._external_disabled_until = 0.0
 
     def _record(self, result: RouteResult) -> None:
         path = self.settings.metrics_path
@@ -121,6 +125,41 @@ class ContextRouter:
             result.metrics.setdefault("seconds", time.perf_counter() - started)
             result.metrics.setdefault("stage_seconds", dict(stage_seconds))
             result.metrics.setdefault("cache", {"hit": False, "status": "disabled"})
+            metrics = result.metrics
+            metrics.setdefault("index", {
+                "seconds": metrics.get("index_seconds"), "mode": metrics.get("index_mode"),
+                "files_seen": metrics.get("files_seen"), "files_indexed": metrics.get("files_indexed"),
+                "symbols_indexed": metrics.get("symbols_indexed"), "bytes_read": metrics.get("bytes_read"),
+                "cache_hit": metrics.get("index_cache_hit", False),
+            })
+            metrics.setdefault("lexical", {
+                "status": metrics.get("lexical_status"), "duration_ms": metrics.get("lexical_duration_ms"),
+                "matched_files": metrics.get("lexical_matched_files"), "confidence": metrics.get("lexical_confidence"),
+                "fallback": metrics.get("lexical_fallback"), "fallback_reason": metrics.get("lexical_fallback_reason"),
+            })
+            metrics.setdefault("ranking", {
+                "candidates": metrics.get("candidates"), "shortlisted_files": metrics.get("shortlisted_files", []),
+            })
+            metrics.setdefault("external_selector", {
+                "status": metrics.get("external_status"), "provider": metrics.get("external_provider"),
+                "model": metrics.get("model"), "input_tokens": metrics.get("selector_input_tokens", 0),
+                "output_tokens": metrics.get("selector_output_tokens", 0),
+                "estimated_prompt_tokens": metrics.get("selector_estimated_prompt_tokens", 0),
+                "prompt_bytes": metrics.get("selector_prompt_bytes", 0),
+                "error_type": metrics.get("selector_error", ""),
+                "error_reason": metrics.get("external_error_reason", ""),
+            })
+            metrics.setdefault("context", {
+                "bytes": metrics.get("context_bytes", 0), "estimated_tokens": metrics.get("estimated_context_tokens", 0),
+                "selected_files": metrics.get("selected_files", []), "included_files": metrics.get("included_files", []),
+                "excluded_low_score_files": metrics.get("excluded_low_score_files", []),
+                "inclusion_reasons": metrics.get("inclusion_reasons", {}),
+            })
+            metrics.setdefault("fallback", {
+                "used": metrics.get("fallback_used", False),
+                "reason": metrics.get("external_error_reason") or metrics.get("lexical_fallback_reason", ""),
+            })
+            metrics.setdefault("total", {"seconds": metrics["seconds"]})
             emit("complete", status=result.status, metrics=result.metrics)
             self._record(result)
             return result
@@ -137,7 +176,10 @@ class ContextRouter:
         }
         try:
             emit("intent", message="Classifying coding intent")
-            if not force and not is_code_request(query):
+            intent = classify_code_request(query)
+            base_metrics["intent"] = intent
+            emit("intent", message="Coding intent classified", **intent)
+            if not force and intent["intent"] != "code":
                 return finish(RouteResult(
                     "not-code", query, message="No coding action detected.", metrics=dict(base_metrics)
                 ))
@@ -208,6 +250,8 @@ class ContextRouter:
                 "lexical_second_score": lexical.second_score,
                 "lexical_confidence": "high" if lexical.high_confidence else "fallback",
                 "lexical_fallback_reason": "" if lexical.high_confidence else lexical.reason,
+                "lexical_fallback": "" if lexical.high_confidence else "structural-index",
+                "lexical_duration_ms": round(lexical.seconds * 1000, 3),
                 "jev_skipped": lexical.high_confidence,
             }
             emit(
@@ -235,6 +279,10 @@ class ContextRouter:
                     ),
                     max_symbols=self.settings.max_symbols,
                     progress=index_progress,
+                    cache_path=(
+                        cache_path_for(repository, self.settings.index_cache_dir)
+                        if self.settings.index_cache_enabled and partial_paths is None else None
+                    ),
                 ),
                 remaining(self.settings.index_timeout_seconds, "indexing"),
                 "indexing",
@@ -260,6 +308,10 @@ class ContextRouter:
                         max_files=self.settings.max_source_files,
                         max_symbols=self.settings.max_symbols,
                         progress=index_progress,
+                        cache_path=(
+                            cache_path_for(repository, self.settings.index_cache_dir)
+                            if self.settings.index_cache_enabled else None
+                        ),
                     ),
                     remaining(self.settings.index_timeout_seconds, "indexing"),
                     "indexing",
@@ -308,6 +360,7 @@ class ContextRouter:
                     "selector_error": "",
                     "selector_error_status_code": None,
                     "selector_error_message": "",
+                    "external_error_reason": "",
                 }
                 emit(
                     "external-selection", message="Skipped external selector after high-confidence lexical match",
@@ -321,39 +374,61 @@ class ContextRouter:
                     model=base_metrics["model"],
                     candidate_count=len(candidates),
                 )
-                try:
-                    selection = _bounded_call(
-                        lambda: self.selector.select_symbols(query, repository, candidates, self.settings),
-                        remaining(self.settings.external_timeout_seconds, "external-selection"),
-                        "external-selection",
-                    )
-                except RoutingTimeout:
-                    raise
-                except Exception as exc:
+                if isinstance(self.selector, JevSelector) and time.monotonic() < self._external_disabled_until:
                     selection = LocalSelector().select_symbols(query, repository, candidates, self.settings)
-                    selector_failure = _selector_failure(exc)
-                    emit(
-                        "external-selection",
-                        message=f'{selector_failure["selector_error_message"]}; using local fallback',
-                        **selector_failure,
-                    )
-                else:
                     selector_failure = {
-                        "selector_error": "",
+                        "selector_error": "CircuitOpen",
                         "selector_error_status_code": None,
-                        "selector_error_message": "",
+                        "selector_error_message": "External selector circuit is temporarily open.",
+                        "external_error_reason": "circuit-open",
                     }
+                else:
+                    try:
+                        selection = _bounded_call(
+                            lambda: self.selector.select_symbols(query, repository, candidates, self.settings),
+                            remaining(self.settings.external_timeout_seconds, "external-selection"),
+                            "external-selection",
+                        )
+                    except Exception as exc:
+                        selection = LocalSelector().select_symbols(query, repository, candidates, self.settings)
+                        selector_failure = _selector_failure(exc)
+                        if isinstance(self.selector, JevSelector):
+                            self._external_disabled_until = time.monotonic() + self.settings.circuit_breaker_seconds
+                        emit(
+                            "external-selection",
+                            message=f'{selector_failure["selector_error_message"]}; using local fallback',
+                            **selector_failure,
+                        )
+                    else:
+                        selector_failure = {
+                            "selector_error": "",
+                            "selector_error_status_code": None,
+                            "selector_error_message": "",
+                            "external_error_reason": "",
+                        }
             stage_seconds["selection"] = time.perf_counter() - stage_started
 
             selected = [index.by_id[symbol_id] for symbol_id in selection.ids if symbol_id in index.by_id]
             emit("expansion", message="Expanding dependencies and tests", selected=len(selected))
             stage_started = time.perf_counter()
-            expanded = expand_context(index, selected, query, self.settings.max_expanded_symbols)
+            expanded, inclusion_reasons_by_symbol = expand_context_detailed(
+                index, selected, query, self.settings.max_expanded_symbols
+            )
             context, included = render_context(repository, expanded, self.settings.max_context_chars)
             stage_seconds["rendering"] = time.perf_counter() - stage_started
             context_bytes = len(context.encode("utf-8"))
+            context_tokens = math.ceil(context_bytes / 4)
             selected_files = sorted({symbol.path for symbol in selected})
             included_files = sorted({index.by_id[symbol_id].path for symbol_id in included if symbol_id in index.by_id})
+            inclusion_reasons: dict[str, list[str]] = {}
+            for symbol_id in included:
+                if symbol_id in index.by_id:
+                    path = index.by_id[symbol_id].path
+                    reason = inclusion_reasons_by_symbol.get(symbol_id, "rendered")
+                    inclusion_reasons.setdefault(path, [])
+                    if reason not in inclusion_reasons[path]:
+                        inclusion_reasons[path].append(reason)
+            excluded_low_score_files = sorted(set(shortlisted_files) - set(included_files))
             metrics = {
                 **common_metrics,
                 "selected": len(selection.ids),
@@ -361,13 +436,25 @@ class ContextRouter:
                 "included": len(included),
                 "selected_files": selected_files,
                 "included_files": included_files,
+                "excluded_low_score_files": excluded_low_score_files,
+                "inclusion_reasons": inclusion_reasons,
                 "selection_reason": selection.reason,
                 "selector_input_tokens": selection.input_tokens,
                 "selector_output_tokens": selection.output_tokens,
                 "selector_seconds": selection.seconds,
+                "selector_candidates_sent": selection.candidates_sent,
+                "selector_prompt_bytes": selection.prompt_bytes,
+                "selector_estimated_prompt_tokens": selection.estimated_prompt_tokens,
+                "selector_token_ratio": (
+                    (selection.input_tokens + selection.output_tokens) / max(1, context_tokens)
+                ),
+                "external_status": "failed" if selector_failure["selector_error"] else (
+                    "skipped" if partial_paths else "ok"
+                ),
+                "fallback_used": bool(selector_failure["selector_error"]),
                 **selector_failure,
                 "context_bytes": context_bytes,
-                "estimated_context_tokens": math.ceil(context_bytes / 4),
+                "estimated_context_tokens": context_tokens,
             }
             return finish(RouteResult(
                 "routed", query, repository, context, selection.ids, included, metrics=metrics

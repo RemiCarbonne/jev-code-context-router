@@ -2,11 +2,11 @@
 workspace_roots = ["~/code"]
 model = "jev-latest"
 endpoint = "https://api.typesafe.ai/v1/systemone"
-timeout_seconds = 15.0
+timeout_seconds = 1.5
 route_timeout_seconds = 30.0
 discovery_timeout_seconds = 5.0
 index_timeout_seconds = 15.0
-external_timeout_seconds = 18.0
+external_timeout_seconds = 2.0
 max_source_files = 25000
 max_symbols = 75000
 max_context_chars = 12000
@@ -16,9 +16,15 @@ lexical_max_files = 40
 lexical_max_terms = 12
 lexical_min_distinct_terms = 2
 lexical_min_margin = 1
-shortlist_size = 20
+shortlist_size = 15
 max_selected = 4
-local_fallback_selected = 2
+local_fallback_selected = 4
+candidate_chars = 120
+selector_max_candidates = 8
+selector_max_input_tokens = 2000
+circuit_breaker_seconds = 30.0
+index_cache_enabled = true
+# index_cache_dir = "~/.cache/jev-context-router/indexes"
 repository_confidence = 0.58
 
 # Optional JSONL telemetry. Prompts, source context, and API keys are never written.

@@ -48,12 +48,12 @@ def test_symbol_selection_redacts_before_remote_evaluation(tmp_path):
         ),
     ]
     selector = StubJev({
-        "fit_0": {"noul": 0.95}, "current_0": {"noul": 0.9},
-        "fit_1": {"noul": 0.1}, "current_1": {"noul": 0.9},
+        "fit_0": {"noul": 0.95},
+        "fit_1": {"noul": 0.1},
     })
     selection = selector.select_symbols("fix run", repository, symbols, Settings())
     assert selection.ids == ("service.py::run",)
-    sent = selector.state["candidate_symbols"]["0"]["source"]
+    sent = selector.state["candidate_symbols"]["0"]["signature"]
     assert "very-secret" not in sent
     assert "[REDACTED]" in sent
 
@@ -64,10 +64,28 @@ def test_empty_jev_symbol_selection_falls_back_locally(tmp_path):
         id="a.py::a", path="a.py", name="a", qualname="a", kind="function",
         language="python", start_line=1, end_line=1, source="def a(): pass",
     )]
-    selector = StubJev({"fit_0": {"noul": 0.1}, "current_0": {"noul": 0.9}})
+    selector = StubJev({"fit_0": {"noul": 0.1}})
     selection = selector.select_symbols("fix it", repository, symbols, Settings())
     assert selection.ids == ("a.py::a",)
     assert selection.reason == "jev-local-fallback"
+
+
+def test_symbol_selector_compacts_and_bounds_remote_payload(tmp_path):
+    repository = Repository(tmp_path, "demo")
+    symbols = [Symbol(
+        id=f"src/file_{index}.ts::symbol_{index}", path=f"src/file_{index}.ts",
+        name=f"symbol_{index}", qualname=f"symbol_{index}", kind="function",
+        language="typescript", start_line=1, end_line=100,
+        source="export function symbol() {\n" + ("const verbose = 1;\n" * 300) + "}",
+    ) for index in range(30)]
+    selector = StubJev({f"fit_{index}": {"noul": 0.9} for index in range(12)})
+    settings = Settings(selector_max_candidates=12, selector_max_input_tokens=600, candidate_chars=120)
+    selection = selector.select_symbols("Debug the TypeScript pipeline", repository, symbols, settings)
+    serialized = json.dumps({"state": selector.state, "questions": {}}, ensure_ascii=False)
+    assert selection.candidates_sent <= 12
+    assert selection.estimated_prompt_tokens <= 600
+    assert len(serialized.encode()) < 2_400
+    assert all(len(item["signature"]) <= 120 for item in selector.state["candidate_symbols"].values())
 
 
 def _typescript_repo(root):
@@ -158,5 +176,6 @@ def test_transport_selector_failure_is_typed_without_leaking_details(
     assert result.metrics["selector_error"] == expected_type
     assert result.metrics["selector_error_status_code"] is None
     assert result.metrics["selector_error_message"] == f"TypeSafe request failed: {expected_type}"
+    assert result.metrics["external_error_reason"] in {"network", "timeout"}
     assert "contains-sensitive" not in serialized
     assert "never-log-this-key" not in serialized

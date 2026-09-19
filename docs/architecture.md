@@ -17,10 +17,10 @@ prompt
   -> repository resolution
   -> bounded ripgrep lexical probe
      -> high confidence: partial safe source index, local selection
-     -> otherwise: complete safe source index
-  -> lexical shortlist
-  -> Jev fit/current selection (optional)
-  -> deterministic dependency expansion
+     -> otherwise: persistent incremental safe source index
+  -> compact local shortlist
+  -> bounded Jev fit selection when local confidence is insufficient
+  -> scored dependency expansion with inclusion reasons
   -> bounded context renderer
   -> runtime adapter
 ```
@@ -49,19 +49,21 @@ Python uses the standard-library AST and extracts classes, functions, async func
 
 The generic parser is deliberately conservative. A future Tree-sitter extra can improve language-specific accuracy without changing the core interfaces.
 
+Complete indexes are cached outside the source repository. Each source file is keyed by relative path; cold and incremental parses store its SHA-256, while warm validation uses nanosecond mtime, ctime, and size without reopening unchanged source bodies. A warm route reconstructs symbols without reading source bodies; an incremental route reparses only changed files and drops deleted entries. Cache writes are atomic and private to the current user. Partial high-confidence lexical routes remain uncached because they are already bounded to a few files.
+
 ## Selection
 
-The local scorer combines prompt/name overlap, path overlap, source overlap, and test affinity. It produces a small shortlist. A high-confidence ripgrep route selects the leading local candidates directly. Otherwise, when configured, Jev evaluates only the full-index shortlist using independent `fit` and `current` questions. If the remote selector fails or accepts nothing, the deterministic local top candidates remain available.
+The local scorer combines prompt/name overlap, path overlap, source overlap, and test affinity. It produces a small shortlist. A high-confidence ripgrep route selects the leading local candidates directly. Otherwise, when configured, Jev receives at most eight compact records containing path, symbol, kind, language, and a bounded signature. The serialized request is reduced until it fits the configured estimated-token budget. One fit question is used per candidate. If the remote selector fails or accepts nothing, the deterministic local top candidates remain available.
 
 Expansion then adds:
 
 - parent classes for selected methods;
 - direct callees and referenced symbols;
-- callers of selected symbols;
-- neighboring symbols from the same file;
+- callers with positive query relevance;
+- one positively-scored neighboring symbol from the same file;
 - matching tests.
 
-All expansion is capped by symbol and character budgets.
+All expansion is capped by symbol and character budgets. Candidate files and rendered files are separate metrics; every included file has an inclusion reason, while shortlisted files rejected from the rendered context appear under `excluded_low_score_files`.
 
 ## Runtime boundary
 

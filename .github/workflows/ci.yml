@@ -22,6 +22,7 @@ jobs:
           enable-cache: true
       - run: uv sync --all-extras --locked
       - run: uv run pytest --cov=jev_context_router --cov-report=term
+      - run: uv run python benchmarks/run_benchmark.py --output /tmp/jev-context-benchmark.json
       - run: uv build
       - name: Reject committed secret material
         run: |

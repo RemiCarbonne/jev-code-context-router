@@ -62,11 +62,14 @@ max_context_chars = 12000
 route_timeout_seconds = 30
 discovery_timeout_seconds = 5
 index_timeout_seconds = 15
-external_timeout_seconds = 18
+external_timeout_seconds = 2
 max_source_files = 25000
 lexical_enabled = true
 lexical_timeout_seconds = 0.5
 lexical_max_files = 40
+index_cache_enabled = true
+selector_max_candidates = 8
+selector_max_input_tokens = 2000
 metrics_path = "~/.local/state/jev-context-router/metrics.jsonl"
 
 [repository_aliases]
@@ -75,9 +78,11 @@ web = "~/code/acme-web"
 
 `workspace_roots` are security boundaries. Configured aliases cannot grant access outside them.
 
-Persistent metrics are opt-in. Configure `metrics_path` above or export `JEV_CONTEXT_METRICS`. When disabled, every result reports `metrics.metrics_persistence.status = "disabled"`. External selector failures preserve only secret-safe diagnostics: `selector_error`, `selector_error_status_code`, and `selector_error_message`. For example, an expired credential is reported as `TypeSafe request failed: HTTPError status=401`; authorization headers and API keys are never logged.
+Persistent metrics are opt-in. Configure `metrics_path` above or export `JEV_CONTEXT_METRICS`. When disabled, every result reports `metrics.metrics_persistence.status = "disabled"`. External selector failures preserve only secret-safe diagnostics: `selector_error`, `selector_error_status_code`, `selector_error_message`, and normalized `external_error_reason`. For example, an expired credential is reported as `TypeSafe request failed: HTTPError status=401`; authorization headers and API keys are never logged.
 
 When ripgrep is available, explicit source paths or several distinctive identifiers concentrated in one file activate a bounded lexical fast path. Only matched source files are structurally parsed and the external Jev call is skipped. Broad, semantic, ambiguous, timed-out, unavailable, or overly large searches fall back to the complete structural/Jev pipeline. Metrics expose `retrieval_mode`, lexical timings and counts, confidence, fallback reason, and `jev_skipped`; literal query terms are never logged.
+
+Full structural indexes are persisted outside the repository. Cold and incremental parses store a SHA-256 per file; warm validation uses `mtime_ns`, `ctime_ns`, and size without reopening unchanged source bodies. Warm routes reuse unchanged symbols; incremental routes parse only changed files. The external selector receives at most eight compact candidates with a strict estimated 2,000-token payload budget. Results expose both backward-compatible flat metrics and structured `intent`, `index`, `lexical`, `ranking`, `external_selector`, `context`, `fallback`, `cache`, and `total` sections.
 
 ## Hermes Agent
 

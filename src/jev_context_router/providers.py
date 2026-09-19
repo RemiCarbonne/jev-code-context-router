@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import urllib.error
@@ -39,9 +40,14 @@ class JevSelector:
     def __init__(self, api_key: str, settings: Settings):
         self.api_key = api_key.strip()
         self.settings = settings
+        self.last_payload_bytes = 0
 
     def _evaluate(self, state: dict, questions: dict) -> tuple[dict, dict, float]:
-        payload = json.dumps({"state": state, "model": self.settings.model, "questions": questions}, ensure_ascii=False).encode()
+        payload = json.dumps(
+            {"state": state, "model": self.settings.model, "questions": questions},
+            ensure_ascii=False, separators=(",", ":"),
+        ).encode()
+        self.last_payload_bytes = len(payload)
         request = urllib.request.Request(
             self.settings.endpoint, data=payload, method="POST",
             headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "User-Agent": "jev-context-router/0.1"},
@@ -94,33 +100,64 @@ class JevSelector:
     def select_symbols(self, query: str, repository: Repository, candidates: list[Symbol], settings: Settings) -> Selection:
         if not candidates:
             return Selection((), reason="no-candidates")
-        state = {
-            "request": query,
-            "repository": repository.name,
-            "candidate_symbols": {
-                str(index): {
-                    "id": symbol.id, "kind": symbol.kind, "language": symbol.language,
-                    "source": sanitize_candidate(symbol.source, settings.candidate_chars),
-                }
-                for index, symbol in enumerate(candidates)
-            },
-        }
-        questions: dict[str, dict] = {}
-        for index, symbol in enumerate(candidates):
-            questions[f"fit_{index}"] = {"type": "noul", "instructions": f"Is symbol `{symbol.id}` directly useful for this coding request?"}
-            questions[f"current_{index}"] = {"type": "noul", "instructions": f"Is symbol `{symbol.id}` safe and current for this repository task?"}
+        bounded = list(candidates[: settings.selector_max_candidates])
+        request_text = sanitize_candidate(query, max(256, settings.selector_max_input_tokens * 2))
+
+        def compact(symbol: Symbol) -> dict:
+            first_lines = "\n".join(line.strip() for line in symbol.source.splitlines()[:3] if line.strip())
+            return {
+                "path": symbol.path, "symbol": symbol.qualname, "kind": symbol.kind,
+                "lang": symbol.language, "signature": sanitize_candidate(first_lines, settings.candidate_chars),
+            }
+
+        def build(items: list[Symbol]) -> tuple[dict, dict]:
+            state = {
+                "request": request_text, "repository": repository.name,
+                "candidate_symbols": {str(index): compact(symbol) for index, symbol in enumerate(items)},
+            }
+            questions = {
+                f"fit_{index}": {"type": "noul", "instructions": "Directly useful?"}
+                for index in range(len(items))
+            }
+            return state, questions
+
+        max_payload_bytes = settings.selector_max_input_tokens * 4
+
+        def payload_size(state: dict, questions: dict) -> int:
+            return len(json.dumps(
+                {"state": state, "model": settings.model, "questions": questions},
+                ensure_ascii=False, separators=(",", ":"),
+            ).encode())
+
+        while len(bounded) > 1:
+            state, questions = build(bounded)
+            if payload_size(state, questions) <= max_payload_bytes:
+                break
+            bounded.pop()
+        state, questions = build(bounded)
+        while payload_size(state, questions) > max_payload_bytes and len(request_text) > 64:
+            request_text = request_text[: max(64, int(len(request_text) * 0.8))]
+            state, questions = build(bounded)
+        estimated_bytes = payload_size(state, questions)
+        if estimated_bytes > max_payload_bytes:
+            ids = tuple(symbol.id for symbol in bounded[: settings.local_fallback_selected])
+            return Selection(
+                ids, reason="selector-budget-local-fallback", candidates_sent=0,
+                prompt_bytes=estimated_bytes, estimated_prompt_tokens=math.ceil(estimated_bytes / 4),
+            )
         answers, usage, seconds = self._evaluate(state, questions)
         scored = []
-        for index, symbol in enumerate(candidates):
+        for index, symbol in enumerate(bounded):
             fit = self._noul(answers, f"fit_{index}")
-            current = self._noul(answers, f"current_{index}")
-            scored.append((fit, current, symbol.id))
-        selected = [symbol_id for fit, current, symbol_id in sorted(scored, reverse=True) if fit >= settings.symbol_fit_threshold and current >= settings.symbol_current_threshold]
+            scored.append((fit, symbol.id))
+        selected = [symbol_id for fit, symbol_id in sorted(scored, reverse=True) if fit >= settings.symbol_fit_threshold]
         selected = selected[: settings.max_selected]
         reason = "jev"
         if not selected:
-            selected = [symbol.id for symbol in candidates[: settings.local_fallback_selected]]
+            selected = [symbol.id for symbol in bounded[: settings.local_fallback_selected]]
             reason = "jev-local-fallback"
+        prompt_bytes = self.last_payload_bytes or estimated_bytes
         return Selection(
-            tuple(selected), int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0), seconds, reason
+            tuple(selected), int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0), seconds, reason,
+            len(bounded), prompt_bytes, math.ceil(prompt_bytes / 4),
         )

@@ -28,11 +28,14 @@ def shortlist(query: str, index: CodeIndex, limit: int) -> list[Symbol]:
     return [symbol for _, symbol in ranked[:limit]]
 
 
-def expand_context(index: CodeIndex, selected: list[Symbol], query: str, limit: int) -> list[Symbol]:
+def expand_context_detailed(
+    index: CodeIndex, selected: list[Symbol], query: str, limit: int
+) -> tuple[list[Symbol], dict[str, str]]:
     result: list[Symbol] = []
     seen: set[str] = set()
+    reasons: dict[str, str] = {}
 
-    def add(symbol: Symbol) -> None:
+    def add(symbol: Symbol, reason: str) -> None:
         nonlocal result
         if symbol.kind == "method":
             parent_name = symbol.qualname.rsplit(".", 1)[0]
@@ -47,24 +50,26 @@ def expand_context(index: CodeIndex, selected: list[Symbol], query: str, limit: 
         if symbol.id not in seen and len(result) < limit:
             result.append(symbol)
             seen.add(symbol.id)
+            reasons[symbol.id] = reason
 
     for symbol in selected:
-        add(symbol)
+        add(symbol, "selected")
 
     for _ in range(2):
         before = len(result)
         wanted = set().union(*(set(symbol.calls) | set(symbol.references) for symbol in result)) if result else set()
         for name in sorted(wanted):
             for candidate in index.by_name.get(name, []):
-                add(candidate)
+                if candidate.language == "python" or score_symbol(query, candidate) > 0:
+                    add(candidate, "referenced-dependency")
         selected_names = {symbol.name for symbol in result}
         callers = [
             candidate for candidate in index.symbols
             if candidate.id not in seen and selected_names & (set(candidate.calls) | set(candidate.references))
         ]
         callers.sort(key=lambda symbol: (-score_symbol(query, symbol), symbol.path, symbol.start_line))
-        for caller in callers[:4]:
-            add(caller)
+        for caller in (item for item in callers if score_symbol(query, item) > 0):
+            add(caller, "relevant-caller")
         if len(result) == before or len(result) >= limit:
             break
 
@@ -73,8 +78,9 @@ def expand_context(index: CodeIndex, selected: list[Symbol], query: str, limit: 
     for symbol in list(result):
         siblings = [candidate for candidate in index.symbols if candidate.path == symbol.path and candidate.id not in seen]
         siblings.sort(key=lambda candidate: abs(candidate.start_line - symbol.start_line))
-        for sibling in siblings[:2]:
-            add(sibling)
+        for sibling in (item for item in siblings if score_symbol(query, item) > 0):
+            add(sibling, "same-file-relevant-neighbor")
+            break
 
     selected_path_tokens = set().union(*(tokens(symbol.path) for symbol in selected)) if selected else set()
     tests = [
@@ -84,5 +90,11 @@ def expand_context(index: CodeIndex, selected: list[Symbol], query: str, limit: 
     ]
     tests.sort(key=lambda symbol: (-score_symbol(query, symbol), symbol.path, symbol.start_line))
     for symbol in tests:
-        add(symbol)
-    return result
+        if score_symbol(query, symbol) > 0:
+            add(symbol, "relevant-test")
+    return result, reasons
+
+
+def expand_context(index: CodeIndex, selected: list[Symbol], query: str, limit: int) -> list[Symbol]:
+    expanded, _ = expand_context_detailed(index, selected, query, limit)
+    return expanded

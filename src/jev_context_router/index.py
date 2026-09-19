@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import os
 import re
 import time
@@ -20,6 +22,57 @@ EXTENSION_LANGUAGE = {
     ".php": "php", ".rb": "ruby", ".cs": "csharp", ".c": "c", ".h": "c",
     ".cpp": "cpp", ".cc": "cpp", ".hpp": "cpp", ".swift": "swift", ".scala": "scala",
 }
+_CACHE_VERSION = 2
+
+
+def _symbol_to_dict(symbol: Symbol) -> dict[str, Any]:
+    return {
+        "id": symbol.id, "path": symbol.path, "name": symbol.name,
+        "qualname": symbol.qualname, "kind": symbol.kind, "language": symbol.language,
+        "start_line": symbol.start_line, "end_line": symbol.end_line,
+        "source": symbol.source, "imports": symbol.imports,
+        "calls": sorted(symbol.calls), "references": sorted(symbol.references),
+    }
+
+
+def _symbol_from_dict(raw: dict[str, Any]) -> Symbol:
+    return Symbol(
+        id=raw["id"], path=raw["path"], name=raw["name"], qualname=raw["qualname"],
+        kind=raw["kind"], language=raw["language"], start_line=int(raw["start_line"]),
+        end_line=int(raw["end_line"]), source=raw["source"], imports=raw.get("imports", ""),
+        calls=frozenset(raw.get("calls", ())), references=frozenset(raw.get("references", ())),
+    )
+
+
+def cache_path_for(repository: Repository, cache_dir: Path) -> Path:
+    identity = hashlib.sha256(str(repository.root.resolve()).encode()).hexdigest()[:24]
+    return cache_dir / f"{identity}.json"
+
+
+def _load_cache(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return {"version": _CACHE_VERSION, "files": {}}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("version") == _CACHE_VERSION and isinstance(raw.get("files"), dict):
+            return raw
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        pass
+    return {"version": _CACHE_VERSION, "files": {}}
+
+
+def _write_cache(path: Path | None, payload: dict[str, Any]) -> bool:
+    if path is None:
+        return False
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        temporary.chmod(0o600)
+        temporary.replace(path)
+        return True
+    except OSError:
+        return False
 
 
 @dataclass
@@ -185,6 +238,7 @@ def index_repository(
     max_files: int = 25_000,
     max_symbols: int = 75_000,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    cache_path: Path | None = None,
 ) -> CodeIndex:
     policy = policy or PathPolicy()
     root = repository.root.resolve()
@@ -193,6 +247,12 @@ def index_repository(
     files_indexed = 0
     bytes_read = 0
     candidate_files: list[str] = []
+    use_cache = include_paths is None and cache_path is not None
+    cache = _load_cache(cache_path) if use_cache else {"version": _CACHE_VERSION, "files": {}}
+    cached_files: dict[str, Any] = cache["files"]
+    next_cached_files: dict[str, Any] = {}
+    cache_hits = 0
+    cache_misses = 0
 
     def check_deadline() -> None:
         if deadline is not None and time.monotonic() >= deadline:
@@ -229,17 +289,45 @@ def index_repository(
             )
         if not policy.allows(root, path):
             continue
+        relative = path.relative_to(root).as_posix()
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        fingerprint = [stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size]
+        cached = cached_files.get(relative) if use_cache else None
+        if cached and cached.get("fingerprint") == fingerprint:
+            try:
+                extracted = [_symbol_from_dict(item) for item in cached.get("symbols", ())]
+            except (KeyError, TypeError, ValueError):
+                cached = None
+            else:
+                cache_hits += 1
+                symbols.extend(extracted)
+                next_cached_files[relative] = cached
+                files_indexed += 1
+                if len(candidate_files) < 200:
+                    candidate_files.append(relative)
+                if len(symbols) > max_symbols:
+                    raise RoutingLimitExceeded("indexing", f"Repository produced more than {max_symbols} source symbols.")
+                continue
         try:
             source = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError):
             continue
-        relative = path.relative_to(root).as_posix()
+        cache_misses += 1
         if len(candidate_files) < 200:
             candidate_files.append(relative)
         files_indexed += 1
         bytes_read += len(source.encode("utf-8"))
         extracted = _python_symbols(root, path, source) if language == "python" else _generic_symbols(root, path, source, language)
         symbols.extend(extracted)
+        if use_cache:
+            next_cached_files[relative] = {
+                "fingerprint": fingerprint,
+                "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+                "symbols": [_symbol_to_dict(symbol) for symbol in extracted],
+            }
         if len(symbols) > max_symbols:
             raise RoutingLimitExceeded(
                 "indexing", f"Repository produced more than {max_symbols} source symbols."
@@ -252,6 +340,16 @@ def index_repository(
                 "bytes_read": bytes_read,
                 "current_file": relative,
             })
+    removed_files = len(set(cached_files) - set(next_cached_files)) if use_cache else 0
+    cache_written = (
+        _write_cache(cache_path, {"version": _CACHE_VERSION, "files": next_cached_files})
+        if use_cache and (cache_misses or removed_files) else False
+    )
+    cache_status = (
+        "disabled" if not use_cache else
+        "warm" if cache_hits and not cache_misses and not removed_files else
+        "incremental" if cache_hits else "cold"
+    )
     stats = {
         "files_seen": files_seen,
         "files_indexed": files_indexed,
@@ -260,5 +358,11 @@ def index_repository(
         "candidate_files": candidate_files,
         "candidate_files_truncated": max(0, files_indexed - len(candidate_files)),
         "index_mode": "partial" if include_paths is not None else "full",
+        "index_cache_hit": cache_status == "warm",
+        "cache": {
+            "enabled": use_cache, "status": cache_status, "hit": cache_status == "warm",
+            "files_reused": cache_hits, "files_reparsed": cache_misses,
+            "files_removed": removed_files, "written": cache_written,
+        },
     }
     return CodeIndex(repository, symbols, stats)

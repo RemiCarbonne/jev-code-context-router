@@ -21,7 +21,7 @@ jev-context route \
 
 Stages are `intent`, `discovery`, `external-repository-selection`, `lexical-search`, `indexing`, `ranking`, `external-selection`, `expansion`, and `complete`.
 
-`lexical-search` runs between repository resolution and indexing when the ripgrep fast path is enabled. Inspect `metrics.retrieval_mode`, `lexical_status`, `lexical_confidence`, `lexical_fallback_reason`, and `jev_skipped`. Set `lexical_enabled = false` to compare or troubleshoot the complete structural path.
+`lexical-search` runs between repository resolution and indexing when the ripgrep fast path is enabled. Inspect `metrics.retrieval_mode`, `lexical_status`, `lexical_confidence`, `lexical_fallback`, `lexical_fallback_reason`, `lexical_duration_ms`, and `jev_skipped`. A lexical timeout is non-fatal and immediately falls back to the structural index. Set `lexical_enabled = false` to compare or troubleshoot that path directly.
 
 ## Diagnose external selector fallback
 
@@ -31,10 +31,17 @@ The router keeps working with a local shortlist when TypeSafe fails. Inspect the
 metrics.selector_error
 metrics.selector_error_status_code
 metrics.selector_error_message
+metrics.external_error_reason
+metrics.external_status
+metrics.fallback_used
 metrics.metrics_persistence.status
 ```
 
-HTTP authentication failures appear as `TypeSafe request failed: HTTPError status=401` or `status=403`. Transport timeouts, network failures, and invalid JSON remain distinct (`TimeoutError`, `URLError`, and `JSONDecodeError`). Messages are deliberately sanitized and never include the bearer token or low-level exception details.
+HTTP authentication failures appear as `TypeSafe request failed: HTTPError status=401` or `status=403`. Transport timeouts, network failures, and invalid JSON remain distinct (`TimeoutError`, `URLError`, and `JSONDecodeError`). `external_error_reason` normalizes safe categories such as `dns`, `tls`, `timeout`, `connection-refused`, `http`, and `network`. The default network timeout is 1.5 seconds, selection is bounded to 2 seconds, and a short in-process circuit breaker avoids repeated calls after a failure. Messages never include the bearer token or raw low-level details.
+
+## Inspect cold, warm, and incremental indexes
+
+`metrics.cache.status` is `cold`, `warm`, `incremental`, or `disabled`. Related fields report `files_reused`, `files_reparsed`, `files_removed`, and whether the cache was written. Override the private cache location with `index_cache_dir` or `JEV_CONTEXT_CACHE_DIR`, or set `index_cache_enabled = false` for a controlled comparison.
 
 To persist one secret-safe JSON object per route:
 

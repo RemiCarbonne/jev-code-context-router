@@ -37,6 +37,9 @@ class Selection:
     output_tokens: int = 0
     seconds: float = 0.0
     reason: str = ""
+    candidates_sent: int = 0
+    prompt_bytes: int = 0
+    estimated_prompt_tokens: int = 0
 
 
 @dataclass(frozen=True)

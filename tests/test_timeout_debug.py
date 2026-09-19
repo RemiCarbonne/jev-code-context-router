@@ -61,8 +61,9 @@ def test_external_selection_timeout_is_structured_and_bounded(tmp_path):
     result = ContextRouter(settings, SleepingSelector()).route(QUERY, cwd=tmp_path)
     elapsed = time.perf_counter() - started
     assert elapsed < 0.5
-    assert result.status == "timeout"
-    assert result.metrics["timeout_stage"] == "external-selection"
+    assert result.status == "routed"
+    assert result.metrics["selector_error"] == "RoutingTimeout"
+    assert result.metrics["fallback_used"] is True
     assert result.metrics["seconds"] < 0.5
 
 

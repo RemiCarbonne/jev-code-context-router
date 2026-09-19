@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jev-context-router"
-version = "0.2.0"
+version = "0.3.0"
 description = "Repository-aware context routing for coding agents, powered by Jev or a local selector."
 readme = "README.md"
 requires-python = ">=3.11"

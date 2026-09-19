@@ -50,3 +50,14 @@ def classify_code_request(query: str) -> dict:
 
 def is_code_request(query: str) -> bool:
     return classify_code_request(query)["intent"] == "code"
+
+
+def analyze_query_scope(query: str) -> str:
+    """Analyze retrieval scope independently from the code-intent gate."""
+    from .coverage import analyze_query_scope as _analyze
+    return _analyze(query)
+
+
+def build_query_plan(query: str):
+    from .coverage import build_query_plan as _build
+    return _build(query)

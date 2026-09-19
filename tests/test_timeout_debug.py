@@ -25,7 +25,8 @@ def make_typescript_repo(root: Path) -> None:
     (root / "src" / "Root.tsx").write_text(
         'import { Composition } from "remotion";\n'
         "export const Root = () => (<>\n"
-        '  <Composition id="One" component={One} durationInFrames={30} fps={30} width={1920} height={1080} />\n'
+        '  <Composition id="One" component={One} durationInFrames={30} fps={30} width={1920} height={1080} defaultProps={{}} />\n'
+        "// preserve every composition id, component, duration, fps, dimensions, and defaultProps.\n"
         "</>);\n"
     )
     dependency = root / "node_modules" / "large-package"

@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+DIAGNOSTIC_ID_LIMIT = 32
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -24,6 +26,7 @@ class Settings:
     candidate_chars: int = 120
     selector_max_candidates: int = 8
     selector_max_input_tokens: int = 2_000
+    selector_max_input_bytes: int | None = None
     circuit_breaker_seconds: float = 30.0
     local_fallback_selected: int = 4
     repository_confidence: float = 0.58
@@ -72,7 +75,7 @@ class Settings:
                 "model", "endpoint", "timeout_seconds", "route_timeout_seconds", "discovery_timeout_seconds",
                 "index_timeout_seconds", "external_timeout_seconds", "shortlist_size", "max_selected",
                 "max_expanded_symbols", "max_context_chars", "candidate_chars",
-                "selector_max_candidates", "selector_max_input_tokens", "circuit_breaker_seconds",
+                "selector_max_candidates", "selector_max_input_tokens", "selector_max_input_bytes", "circuit_breaker_seconds",
                 "local_fallback_selected", "repository_confidence", "symbol_fit_threshold",
                 "symbol_current_threshold", "max_file_bytes", "max_source_files", "max_symbols",
                 "lexical_enabled", "lexical_timeout_seconds", "lexical_max_files",

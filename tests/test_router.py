@@ -5,6 +5,7 @@ import pytest
 
 from jev_context_router.config import Settings
 from jev_context_router.models import Repository, Selection
+from jev_context_router.providers import JevSelector, LocalSelector
 from jev_context_router.router import ContextRouter
 
 
@@ -135,3 +136,83 @@ def test_persistent_fast_path_metrics_do_not_store_query_terms(tmp_path):
     assert '"retrieval_mode": "rg-fast-path"' in persisted
     assert "privatePromptMarker" not in persisted
     assert '"query"' not in persisted
+
+
+@pytest.mark.parametrize("mode", ["local", "lexical", "circuit"])
+def test_not_attempted_external_selection_is_never_reported_as_selected(tmp_path, mode):
+    query = "Fix relevant"
+    if mode == "local":
+        repo = make_repo(tmp_path, "demo", "def relevant(): return 1\ndef other(): return 2\n")
+        selector = LocalSelector()
+        settings = Settings(workspace_roots=(tmp_path,), lexical_enabled=False)
+    elif mode == "lexical":
+        repo = make_typescript_repo(tmp_path)
+        selector = CountingSelector()
+        settings = Settings(workspace_roots=(tmp_path,))
+        query = "Refactor healthcareProviders ORGANIZATION marseille estimatedPractitioners writeFileSync getPhoneNumber"
+    else:
+        repo = make_repo(tmp_path, "demo", "def relevant(): return 1\ndef other(): return 2\n")
+        selector = JevSelector("test-key", Settings())
+        settings = Settings(workspace_roots=(tmp_path,), lexical_enabled=False)
+        query = "Fix relevant"
+    router = ContextRouter(settings, selector)
+    if mode == "circuit":
+        router._external_disabled_until = float("inf")
+
+    result = router.route(query if mode != "local" else "Fix relevant", cwd=repo)
+
+    assert result.metrics["external_selection_outcome"] == "not-attempted"
+    assert result.metrics["transport_status"] == "not-attempted"
+    assert result.metrics["external_status"] in {"skipped", "not-attempted"}
+    assert result.metrics["local_fallback_used"] is True
+    assert result.metrics["selected_ids"]
+
+
+def test_router_exposes_selection_boundaries_and_semantic_fallback(tmp_path):
+    repo = make_repo(tmp_path, "demo", "def relevant(): return 1\ndef other(): return 2\n")
+
+    class LowScoreSelector(FakeSelector):
+        def select_symbols(self, query, repository, candidates, settings):
+            return Selection(tuple(symbol.id for symbol in candidates[:1]), reason="jev-local-fallback",
+                             fallback_used=True, fallback_reason="no-external-candidate-above-threshold",
+                             external_selection_outcome="no-accepted",
+                             shortlist_ids=tuple(symbol.id for symbol in candidates),
+                             external_selected_ids=())
+
+    result = ContextRouter(Settings(workspace_roots=(tmp_path,), lexical_enabled=False), LowScoreSelector()).route(
+        "Fix relevant", cwd=repo
+    )
+    assert result.metrics["external_selection_outcome"] == "no-accepted"
+    assert result.metrics["fallback_used"] is True
+    assert result.metrics["fallback_reason"] == "no-external-candidate-above-threshold"
+    assert result.metrics["candidate_ids"]
+    assert result.metrics["selected_ids"]
+    assert result.metrics["semantic_fallback_used"] is True
+    assert result.metrics["local_fallback_used"] is True
+    assert result.metrics["interpreted_scores"] == {}
+
+
+def test_indexed_identifiers_are_bounded_and_counted(tmp_path):
+    repo = make_repo(tmp_path, "demo", "\n".join(f"def function_{i}(): return {i}" for i in range(30)))
+    result = ContextRouter(
+        Settings(workspace_roots=(tmp_path,), lexical_enabled=False, max_symbols=100), FakeSelector()
+    ).route("Fix function", cwd=repo)
+    identifiers = result.metrics["indexed_symbol_ids"]
+    assert len(identifiers) <= 32
+    assert result.metrics["indexed_symbol_ids_count"] >= len(identifiers)
+    assert result.metrics["indexed_symbol_ids_truncated"] == (result.metrics["indexed_symbol_ids_count"] > len(identifiers))
+
+
+def test_local_shortlisted_candidates_all_have_terminal_trace_reason(tmp_path):
+    repo = make_repo(tmp_path, "demo", "\n".join(f"def function_{i}(): return {i}" for i in range(40)))
+    result = ContextRouter(
+        Settings(workspace_roots=(tmp_path,), lexical_enabled=False, max_symbols=100), LocalSelector()
+    ).route("Fix function", cwd=repo)
+    trace = result.metrics["selection_trace"]
+    shortlisted = trace["shortlisted"]["count"]
+    terminal = (
+        trace["selected"]["count"] + trace["expanded"]["count"] + trace["rendered"]["count"]
+        + sum(category["count"] for category in trace["rejected"].values())
+    )
+    assert shortlisted <= terminal
+    assert trace["rejected"]["not-selected"]["count"] > 0

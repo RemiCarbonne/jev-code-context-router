@@ -40,6 +40,18 @@ Observed on 2026-09-19:
 
 The external provider in this public harness is simulated deterministically so CI does not need a secret and results do not depend on network service. The 674-token figure is the exact serialized compact benchmark payload estimate, not a claim about provider-side accounting. A real agent-token comparison still requires paired clean agent runs because filesystem bytes or rendered context tokens are not substitutes for `tokens_agent_sans_jev`.
 
+## Selection observability metrics
+
+Routing metrics keep the legacy `external_status`, `selection_reason`, and `fallback_used` keys. The structured keys are:
+
+- `transport_status`: `ok`, `failed`, `skipped`, or `not-attempted`;
+- `response_validity`: `valid`, `partial`, `invalid`, or `not-applicable`;
+- `external_selection_outcome`: `selected`, `no-accepted`, `budget-excluded`, `failed`, or `not-attempted`;
+- `fallback_used` and `fallback_reason`: semantic/local fallback, including a successful transport with no accepted external candidate;
+- ID boundaries: `candidate_ids`, `candidates_sent_ids`, `scored_ids`, `invalid_score_ids`, `external_selected_ids`, `selected_ids`, `expanded_ids`, `rendered_ids`, `excluded_score_ids`, and `excluded_budget_ids`.
+
+These values contain candidate identifiers and bounded diagnostic categories only. They do not contain request text, provider URLs, headers, secrets, or raw responses.
+
 ## Reproduction policy
 
 The repository intentionally does not publish hidden tests alongside an evaluated fixture. Public benchmark fixtures should place private acceptance tests outside every configured workspace root and compare their checksums before and after an agent run.

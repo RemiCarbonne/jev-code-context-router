@@ -14,7 +14,7 @@ from .security import PathPolicy
 
 _PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+"
-    r"\.(?:pyi?|jsx?|mjs|cjs|tsx?|go|rs|java|kt|kts|php|rb|cs|c|h|cpp|cc|hpp|swift|scala)\b",
+    r"\.(?:pyi?|jsx?|mjs|cjs|tsx?|astro|go|rs|java|kt|kts|php|rb|cs|c|h|cpp|cc|hpp|swift|scala)\b",
     re.I,
 )
 _WORD_RE = re.compile(r"\b[A-Za-z_$][A-Za-z0-9_$-]{3,}\b")

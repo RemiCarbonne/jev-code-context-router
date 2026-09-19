@@ -36,6 +36,9 @@ Source = "https://github.com/RemiCarbonne/jev-code-context-router"
 [tool.hatch.build.targets.wheel]
 packages = ["src/jev_context_router"]
 
+[tool.hatch.build.targets.sdist]
+exclude = ["/.hermes", "/.hermes/**", "/.venv", "/dist", "/.coverage"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

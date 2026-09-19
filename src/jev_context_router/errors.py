@@ -19,7 +19,7 @@ def _safe_category(exc: Exception) -> str:
         return "connection-refused"
     if isinstance(exc, urllib.error.URLError):
         return "network"
-    return "provider-response"
+    return "unknown"
 
 
 class RoutingError(RuntimeError):
@@ -52,6 +52,19 @@ class ExternalProviderError(RuntimeError):
         if self.status_code is not None:
             self.safe_message += f" status={self.status_code}"
         super().__init__(self.safe_message)
+
+
+class ExternalResponseError(RuntimeError):
+    """A completed provider request whose response cannot be interpreted safely."""
+
+    category = "provider-response"
+    transport_status = "ok"
+    response_validity = "invalid"
+
+    def __init__(self, cause_type: str, message: str = "External provider response was invalid"):
+        self.cause_type = cause_type
+        self.safe_message = message
+        super().__init__(message)
 
 
 class RoutingStageError(RoutingError):
